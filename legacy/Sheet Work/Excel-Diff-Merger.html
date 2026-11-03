@@ -1,0 +1,1499 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Excel Merger</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: four stacked panels (add files, choose rules, review the result, download), tables scroll inside their own boxes */
+:root {
+  --bg: #eef2ef;
+  --surface: #fbfcfb;
+  --fg: #13201a;
+  --muted: #566860;
+  --line: #cfd9d3;
+  --line-soft: #e1e8e4;
+  --head-bg: #e3eae6;
+  --accent: #14684a;
+  --accent-fg: #ffffff;
+  --accent-soft: #d9ece3;
+  --chg-bg: #fde9a8;
+  --chg-fg: #5c4300;
+  --calc-bg: #cfe9d4;
+  --calc-fg: #1d4a2a;
+  --add-bg: #cfe3fb;
+  --add-fg: #12395f;
+  --old-bg: #f4d3d3;
+  --old-fg: #6b1f1f;
+  --err: #a12a2a;
+  --font-body: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-data: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1713;
+    --surface: #16211b;
+    --fg: #e4ede8;
+    --muted: #92a69b;
+    --line: #2b3a32;
+    --line-soft: #223029;
+    --head-bg: #1d2b24;
+    --accent: #4fc596;
+    --accent-fg: #06190f;
+    --accent-soft: #17382b;
+    --chg-bg: #5a4710;
+    --chg-fg: #ffe9a6;
+    --calc-bg: #1f4a31;
+    --calc-fg: #c6f0d2;
+    --add-bg: #1c3a5e;
+    --add-fg: #bcd8f7;
+    --old-bg: #512424;
+    --old-fg: #f5c9c9;
+    --err: #f0a0a0;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1713;
+  --surface: #16211b;
+  --fg: #e4ede8;
+  --muted: #92a69b;
+  --line: #2b3a32;
+  --line-soft: #223029;
+  --head-bg: #1d2b24;
+  --accent: #4fc596;
+  --accent-fg: #06190f;
+  --accent-soft: #17382b;
+  --chg-bg: #5a4710;
+  --chg-fg: #ffe9a6;
+  --calc-bg: #1f4a31;
+  --calc-fg: #c6f0d2;
+  --add-bg: #1c3a5e;
+  --add-fg: #bcd8f7;
+  --old-bg: #512424;
+  --old-fg: #f5c9c9;
+  --err: #f0a0a0;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.5;
+  padding-block: 28px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1080px; margin: 0 auto; display: grid; gap: 20px; min-width: 0; }
+.top { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-start; justify-content: space-between; }
+.top > div { min-width: 0; flex: 1 1 360px; }
+h1 { font-size: clamp(26px, 5vw, 34px); line-height: 1.15; margin: 0 0 8px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+.lede { margin: 0; max-width: 62ch; color: var(--muted); }
+
+.step { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 20px; display: grid; gap: 16px; min-width: 0; }
+h2 { font-size: 17px; margin: 0; font-weight: 600; display: flex; gap: 10px; align-items: center; text-wrap: balance; }
+h3 { font-size: 15px; margin: 0; font-weight: 600; }
+h4 { font-size: 12px; margin: 0 0 8px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.n { display: inline-grid; place-items: center; width: 24px; height: 24px; flex: none; border-radius: 50%; background: var(--accent); color: var(--accent-fg); font: 500 13px var(--font-data); }
+
+label, legend { display: block; margin: 0 0 4px; padding: 0; font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+select, input[type="number"], input[type="text"], input[type="search"] { width: 100%; min-width: 0; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg); }
+select:disabled, input:disabled { opacity: 0.55; }
+select:focus-visible, input:focus-visible, button:focus-visible, summary:focus-visible, td[tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.files { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px; }
+.file { display: grid; gap: 12px; align-content: start; min-width: 0; padding: 14px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--bg); }
+.file-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.drop { position: relative; display: grid; gap: 2px; margin: 0; padding: 14px; border: 1.5px dashed var(--line); border-radius: 8px; background: var(--surface); cursor: pointer; min-width: 0; text-transform: none; letter-spacing: 0; color: var(--fg); font-size: 15px; font-weight: 400; }
+.drop:hover, .drop.over { border-color: var(--accent); }
+.drop:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.drop input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.drop-name { font: 500 13px var(--font-data); overflow-wrap: anywhere; }
+.drop-hint { color: var(--muted); font-size: 13px; }
+.file-opts { display: grid; grid-template-columns: 1fr 110px; gap: 12px; }
+.dims { margin: 0; font: 400 12px var(--font-data); color: var(--muted); min-height: 1.4em; }
+.err { margin: 0; color: var(--err); font-size: 13px; }
+.actions-row { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.tag-ex { background: var(--accent-soft); color: var(--accent); }
+.tag-mute { background: var(--head-bg); color: var(--muted); }
+.t-chg { background: var(--chg-bg); color: var(--chg-fg); }
+.t-calc { background: var(--calc-bg); color: var(--calc-fg); }
+.t-add { background: var(--add-bg); color: var(--add-fg); }
+.t-old { background: var(--old-bg); color: var(--old-fg); }
+
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; }
+.rule { min-width: 0; margin: 0; padding: 0; border: 0; }
+.rule.wide { grid-column: 1 / -1; }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; margin-bottom: 12px; }
+.seg button { font: inherit; font-size: 14px; padding: 7px 14px; border: 0; background: var(--surface); color: var(--fg); cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { font: 500 13px var(--font-data); padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--fg); cursor: pointer; }
+.chip small { font: 400 11px var(--font-data); opacity: 0.7; margin-left: 6px; }
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.hint { margin: 10px 0 0; color: var(--muted); font-size: 13px; max-width: 70ch; }
+.checks { display: grid; gap: 8px; margin-top: 14px; }
+.check { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 14px; font-weight: 400; color: var(--fg); text-transform: none; letter-spacing: 0; cursor: pointer; }
+.check input { width: 16px; height: 16px; margin: 3px 0 0; flex: none; accent-color: var(--accent); }
+.sortrow { display: grid; grid-template-columns: 1fr 120px; gap: 8px; }
+
+button.link { font: inherit; font-size: 14px; padding: 0; border: 0; background: none; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+button.primary, button.secondary { font: inherit; font-weight: 500; font-size: 14px; padding: 10px 16px; border-radius: 6px; cursor: pointer; }
+button.primary { background: var(--accent); color: var(--accent-fg); border: 1px solid var(--accent); }
+button.secondary { background: var(--surface); color: var(--fg); border: 1px solid var(--line); }
+button.small { padding: 5px 10px; font-size: 13px; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+details.cols { border: 1px solid var(--line-soft); border-radius: 8px; background: var(--bg); }
+details.cols > summary { padding: 12px 14px; cursor: pointer; font-weight: 500; }
+details.cols[open] > summary { border-bottom: 1px solid var(--line-soft); }
+details.cols .inner { padding: 14px; display: grid; gap: 10px; }
+.coltable td { font-family: var(--font-body); font-size: 13px; }
+.coltable select { padding: 5px 8px; font-size: 13px; min-width: 190px; }
+.coltable td.mv { white-space: nowrap; }
+.coltable button.small { padding: 2px 8px; }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1px; margin: 0; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.stats > div { background: var(--surface); padding: 12px 14px; min-width: 0; }
+.stats dt { font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.stats dd { margin: 2px 0 0; font: 500 26px var(--font-data); font-variant-numeric: tabular-nums; }
+.stats dd small { display: block; font: 400 12px var(--font-body); color: var(--muted); }
+.notes { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px; display: grid; gap: 4px; }
+.bars { display: grid; gap: 6px; max-width: 640px; }
+.bar { display: grid; grid-template-columns: minmax(80px, 160px) 1fr 40px; align-items: center; gap: 10px; font-size: 13px; }
+.bar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar i { display: block; height: 8px; border-radius: 4px; background: var(--accent); min-width: 3px; }
+.bar b { font: 500 13px var(--font-data); text-align: right; font-variant-numeric: tabular-nums; }
+.manual { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 14px; padding: 10px 12px; border-radius: 6px; background: var(--accent-soft); color: var(--fg); }
+
+.tools { display: grid; grid-template-columns: minmax(180px, 1fr) auto; gap: 12px; align-items: end; }
+.tools .check { margin: 0 0 8px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tab { font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg); cursor: pointer; }
+.tab[aria-pressed="true"] { background: var(--fg); border-color: var(--fg); color: var(--surface); }
+.tab span { font-family: var(--font-data); margin-left: 6px; opacity: 0.75; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 12px; color: var(--muted); align-items: center; }
+.key { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 6px; }
+.key-chg { background: var(--chg-bg); }
+.key-calc { background: var(--calc-bg); }
+.key-kept { box-shadow: inset 0 0 0 2px var(--chg-bg); }
+
+.tablewrap { overflow: auto; max-height: 460px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 13px; }
+th { position: sticky; top: 0; z-index: 1; text-align: left; padding: 8px 12px; background: var(--head-bg); border-bottom: 1px solid var(--line); white-space: nowrap; font-weight: 600; }
+th.newcol::after { content: ' (new)'; font-weight: 400; color: var(--muted); }
+td { padding: 7px 12px; border-bottom: 1px solid var(--line-soft); white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+td.st { font-family: var(--font-body); }
+td.num { text-align: right; }
+td.chg { background: var(--chg-bg); color: var(--chg-fg); cursor: pointer; }
+td.calc { background: var(--calc-bg); color: var(--calc-fg); cursor: pointer; }
+td.kept { box-shadow: inset 0 0 0 2px var(--chg-bg); cursor: pointer; }
+td.ovr { text-decoration: underline dotted; text-underline-offset: 3px; }
+tr.skip td { opacity: 0.4; }
+td.keep { width: 1%; text-align: center; font-family: var(--font-body); }
+td.keep input { accent-color: var(--accent); width: 15px; height: 15px; }
+.empty { padding: 24px; color: var(--muted); text-align: center; }
+.pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; color: var(--muted); }
+.pager span { margin-right: auto; }
+.note { margin: 0; font-size: 13px; color: var(--muted); max-width: 75ch; }
+.exp { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 20px; }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.status { margin: 0; min-height: 1.4em; font-size: 14px; color: var(--muted); }
+textarea#tsv { width: 100%; min-height: 90px; font: 400 12px var(--font-data); background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .drop, .chip, .tab { transition: border-color 0.12s, background-color 0.12s; }
+}
+</style>
+
+<style>body{margin:0}</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Excel Merger</h1>
+      <p class="lede">Combine an old copy and a new copy of a spreadsheet into one file. Match rows by a key column, decide which version wins for each column, fix single cells by hand, and download the result with the changes highlighted.</p>
+    </div>
+    <button type="button" class="secondary" id="theme">Dark / light</button>
+  </header>
+
+  <section class="step" aria-labelledby="h-files">
+    <h2 id="h-files"><span class="n">1</span>Add both files</h2>
+    <div class="files">
+      <div class="file" id="card-old"></div>
+      <div class="file" id="card-new"></div>
+    </div>
+    <div class="actions-row">
+      <button type="button" class="link" id="addBoth">Pick both files at once</button>
+      <input type="file" id="file-both" accept=".xlsx,.xlsm,.xls,.csv,.tsv,.txt" multiple hidden>
+      <button type="button" class="link" id="swap">Swap old and new</button>
+      <button type="button" class="link" id="useSample">Use example data</button>
+      <button type="button" class="link" id="resetAll">Reset all choices</button>
+    </div>
+    <p class="note">Tip: when you pick or drop two files together, the one saved earlier becomes the old copy. Supports .xlsx, .xlsm, .xls, .csv and .tsv. Files stay in your browser and are not uploaded anywhere.</p>
+  </section>
+
+  <section class="step" aria-labelledby="h-rules">
+    <h2 id="h-rules"><span class="n">2</span>Choose how to merge</h2>
+    <div class="rules">
+      <fieldset class="rule wide">
+        <legend>Combine rows by</legend>
+        <div class="seg" role="group" aria-label="Merge mode">
+          <button type="button" id="mode-key" aria-pressed="true">Matching key</button>
+          <button type="button" id="mode-pos" aria-pressed="false">Row position</button>
+          <button type="button" id="mode-stack" aria-pressed="false">Stack one under the other</button>
+        </div>
+        <div id="keyArea"></div>
+        <div class="checks">
+          <label class="check" for="opt-case"><input type="checkbox" id="opt-case">Ignore upper and lower case when matching and comparing</label>
+          <label class="check" for="opt-trim"><input type="checkbox" id="opt-trim">Ignore extra spaces when matching and comparing</label>
+          <label class="check" for="opt-zeros"><input type="checkbox" id="opt-zeros">Ignore leading zeros in keys (00123 matches 123)</label>
+        </div>
+      </fieldset>
+      <div class="rule">
+        <label for="conflict">When the two files differ</label>
+        <select id="conflict">
+          <option value="fill">Use the new value, keep the old one where new is blank</option>
+          <option value="new">Always use the new value, even if blank</option>
+          <option value="oldfill">Keep the old value, fill blanks from new</option>
+          <option value="old">Always keep the old value</option>
+        </select>
+      </div>
+      <div class="rule">
+        <label for="onlyNew">Rows only in the new file</label>
+        <select id="onlyNew">
+          <option value="keep">Add them to the result</option>
+          <option value="drop">Leave them out</option>
+        </select>
+      </div>
+      <div class="rule">
+        <label for="onlyOld">Rows only in the old file</label>
+        <select id="onlyOld">
+          <option value="keep">Keep them</option>
+          <option value="drop">Remove them (deleted in the new copy)</option>
+        </select>
+      </div>
+      <div class="rule">
+        <label for="sortCol">Sort the result by</label>
+        <div class="sortrow">
+          <select id="sortCol" aria-label="Sort column"><option value="">Original order</option></select>
+          <select id="sortDir" aria-label="Sort direction"><option value="asc">A to Z</option><option value="desc">Z to A</option></select>
+        </div>
+      </div>
+      <div class="rule wide">
+        <label class="check" for="opt-dedupe" style="margin:0"><input type="checkbox" id="opt-dedupe">Remove duplicate rows from the result (rows where every shown column is identical)</label>
+      </div>
+    </div>
+    <details class="cols" id="colsBox">
+      <summary>Columns: choose what to include, the order, and a rule for each column</summary>
+      <div class="inner">
+        <p class="note">Set a different rule for a single column, for example add stock counts together while taking prices from the new file. Untick a column to leave it out of the result.</p>
+        <div class="tablewrap" id="colsTable" style="max-height:340px"></div>
+      </div>
+    </details>
+  </section>
+
+  <section class="step" aria-labelledby="h-result">
+    <h2 id="h-result"><span class="n">3</span>Review the result</h2>
+    <p class="note" id="exNote" hidden>Showing a merge of the example data. Add your own files above to replace it.</p>
+    <dl class="stats" id="stats"></dl>
+    <ul class="notes" id="notes"></ul>
+    <div id="colbarsBox" hidden><h4>Changes by column</h4><div class="bars" id="colbars"></div></div>
+    <div class="manual" id="manual" hidden></div>
+    <div class="tabs" id="tabs" role="group" aria-label="Rows to show"></div>
+    <div class="tools">
+      <div><label for="q">Search the rows below</label><input type="search" id="q" placeholder="Type a name, number or code" autocomplete="off"></div>
+      <label class="check" for="onlyChg" id="onlyChgWrap" hidden><input type="checkbox" id="onlyChg">Show only columns that changed</label>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="tablewrap" id="tablewrap"></div>
+    <div class="pager" id="pager"></div>
+    <p class="note">Click a highlighted cell to switch it between the old and the new value. Untick Keep to leave a row out of the download. Formulas are saved as their calculated values.</p>
+  </section>
+
+  <section class="step" aria-labelledby="h-export">
+    <h2 id="h-export"><span class="n">4</span>Download</h2>
+    <div class="exp">
+      <div>
+        <label for="fname">File name</label>
+        <input type="text" id="fname" autocomplete="off" spellcheck="false">
+        <p class="hint">The right extension is added for you.</p>
+      </div>
+      <fieldset class="rule">
+        <legend>Include in the Excel file</legend>
+        <div class="checks" style="margin-top:0">
+          <label class="check" for="x-styled"><input type="checkbox" id="x-styled">Highlight changed cells and add a note with the old value</label>
+          <label class="check" for="x-status"><input type="checkbox" id="x-status">A Status column (Updated, New, Only in old)</label>
+          <label class="check" for="x-changes"><input type="checkbox" id="x-changes">A Changes sheet that lists every changed value</label>
+          <label class="check" for="x-summary"><input type="checkbox" id="x-summary">A Summary sheet with the settings and counts</label>
+          <label class="check" for="x-others"><input type="checkbox" id="x-others">Also merge the other sheets that have the same name in both files</label>
+        </div>
+      </fieldset>
+    </div>
+    <div class="btns">
+      <button type="button" class="primary" id="dl-xlsx" disabled>Download .xlsx</button>
+      <button type="button" class="secondary" id="dl-csv" disabled>Download .csv</button>
+      <button type="button" class="secondary" id="dl-json" disabled>Download .json</button>
+      <button type="button" class="secondary" id="copy" disabled>Copy for Excel</button>
+    </div>
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+    <textarea id="tsv" readonly hidden aria-label="Merged data, tab separated"></textarea>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  const LABEL = { old: 'Old copy', new: 'New copy' };
+  const ACCEPT = '.xlsx,.xlsm,.xls,.csv,.tsv,.txt';
+  const PAGE = 100;
+  const NOTE_LIMIT = 5000;
+  const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const SET_KEY = 'excel-merger.settings.v2';
+
+  const state = {
+    src: { old: null, new: null },
+    sheet: { old: '', new: '' },
+    header: { old: 1, new: 1 },
+    err: { old: '', new: '' },
+    mode: 'key', keyCols: [], keyAuto: true, keyNote: '',
+    caseI: true, trimWs: true, zeros: false, zerosAuto: false, autoNote: '',
+    conflict: 'fill', onlyOld: 'keep', onlyNew: 'keep', dedupe: false,
+    sortCol: '', sortDir: 'asc',
+    colRules: new Map(), colExclude: new Set(), colOrder: [],
+    overrides: new Map(), excluded: new Set(),
+    view: 'all', q: '', page: 0, onlyChg: false,
+    exp: { styled: true, status: true, changes: true, summary: true, others: true },
+    O: null, N: null, common: [], result: null
+  };
+  let downloads = null;
+
+  /* ---------- storage and theme ---------- */
+  function loadSettings() {
+    try {
+      const s = JSON.parse(localStorage.getItem(SET_KEY) || 'null');
+      if (!s) return;
+      ['caseI', 'trimWs', 'zeros', 'dedupe'].forEach((k) => { if (typeof s[k] === 'boolean') state[k] = s[k]; });
+      ['conflict', 'onlyOld', 'onlyNew'].forEach((k) => { if (typeof s[k] === 'string') state[k] = s[k]; });
+      if (s.exp) Object.keys(state.exp).forEach((k) => { if (typeof s.exp[k] === 'boolean') state.exp[k] = s.exp[k]; });
+      if (s.theme === 'dark' || s.theme === 'light') document.documentElement.setAttribute('data-theme', s.theme);
+    } catch (e) { /* storage unavailable */ }
+  }
+  function saveSettings() {
+    try {
+      const t = document.documentElement.getAttribute('data-theme') || '';
+      localStorage.setItem(SET_KEY, JSON.stringify({
+        caseI: state.caseI, trimWs: state.trimWs, zeros: state.zerosAuto ? false : state.zeros, dedupe: state.dedupe,
+        conflict: state.conflict, onlyOld: state.onlyOld, onlyNew: state.onlyNew, exp: state.exp, theme: t
+      }));
+    } catch (e) { /* storage unavailable */ }
+  }
+  function toggleTheme() {
+    const cur = document.documentElement.getAttribute('data-theme') ||
+      (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', cur === 'dark' ? 'light' : 'dark');
+    saveSettings();
+  }
+
+  /* ---------- cell helpers ---------- */
+  const isBlank = (c) => !c || c.v === undefined || c.v === null || String(c.v).trim() === '';
+  const isNum = (c) => !!c && c.t === 'n' && typeof c.v === 'number' && isFinite(c.v);
+  const val = (c) => (isBlank(c) ? '' : (c.t === 'n' || c.t === 'b' ? String(c.v) : String(c.v).trim()));
+  const shown = (c) => (isBlank(c) ? '' : (c.w != null ? String(c.w) : String(c.v)));
+  const colKey = (s) => String(s).trim().toLowerCase();
+  function isDateFmt(z) {
+    if (!z || /^general$/i.test(z)) return false;
+    return /[ymdhs]/i.test(String(z).replace(/"[^"]*"|\[[^\]]*\]|\\./g, ''));
+  }
+  function isoDate(v) {
+    try {
+      const p = XLSX.SSF.parse_date_code(v);
+      if (!p) return null;
+      const two = (x) => String(x).padStart(2, '0');
+      let s = p.y + '-' + two(p.m) + '-' + two(p.d);
+      if (p.H || p.M || p.S) s += ' ' + two(p.H) + ':' + two(p.M) + ':' + two(Math.floor(p.S));
+      return s;
+    } catch (e) { return null; }
+  }
+  function rawValue(c) {
+    if (isBlank(c)) return '';
+    if (c.t === 'n') return isDateFmt(c.z) ? (isoDate(c.v) || shown(c)) : c.v;
+    if (c.t === 'b') return !!c.v;
+    return String(c.v);
+  }
+  function nz(s, cfg) {
+    s = String(s);
+    if (cfg.trimWs) s = s.replace(/\s+/g, ' ').trim();
+    if (cfg.caseI) s = s.toLowerCase();
+    return s;
+  }
+  function keyOf(cell, cfg) {
+    let s = nz(val(cell), cfg);
+    if (cfg.zeros) s = s.replace(/^0+(?=\d)/, '');
+    return s;
+  }
+
+  /* ---------- reading files ---------- */
+  const NUMERIC = /^-?(0|[1-9]\d*)(\.\d+)?$/;
+  function normCell(cell, csv) {
+    if (csv && cell.t === 's' && typeof cell.v === 'string' && cell.v.length < 16 && NUMERIC.test(cell.v)) {
+      return { t: 'n', v: Number(cell.v), w: cell.v };
+    }
+    return { t: cell.t, v: cell.v, z: cell.z, w: cell.w };
+  }
+  function getAoa(src, name) {
+    if (src.cache[name]) return src.cache[name];
+    const ws = src.wb && src.wb.Sheets[name];
+    const out = [];
+    if (ws && ws['!ref']) {
+      const rg = XLSX.utils.decode_range(ws['!ref']);
+      for (let r = rg.s.r; r <= rg.e.r; r++) {
+        const row = [];
+        for (let c = rg.s.c; c <= rg.e.c; c++) {
+          const cell = ws[XLSX.utils.encode_cell({ r, c })];
+          row.push(cell ? normCell(cell, src.csv) : null);
+        }
+        out.push(row);
+      }
+    }
+    src.cache[name] = out;
+    return out;
+  }
+  async function readFile(file) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    const csv = ext === 'csv' || ext === 'tsv' || ext === 'txt';
+    const wb = csv
+      ? XLSX.read(await file.text(), { type: 'string', raw: true })
+      : XLSX.read(await file.arrayBuffer(), { type: 'array', cellNF: true });
+    return { name: file.name, wb, sheetNames: wb.SheetNames.slice(), cache: {}, sample: false, csv };
+  }
+  const emptyTable = () => ({ names: [], rows: [] });
+  function parseTable(aoa, hdr) {
+    const hi = Math.max(1, Math.floor(hdr || 1)) - 1;
+    const hrow = aoa[hi] || [];
+    let width = hrow.length;
+    for (let i = hi; i < aoa.length; i++) width = Math.max(width, aoa[i].length);
+    const rows = [];
+    for (let r = hi + 1; r < aoa.length; r++) {
+      const row = aoa[r];
+      if (!row || row.every(isBlank)) continue;
+      const full = [];
+      for (let c = 0; c < width; c++) full.push(row[c] || null);
+      rows.push({ cells: full, line: r + 1 });
+    }
+    const keep = [], seen = {};
+    for (let cc = 0; cc < width; cc++) {
+      const had = !isBlank(hrow[cc]);
+      const hasData = rows.some((x) => !isBlank(x.cells[cc]));
+      if (!had && !hasData) continue;
+      let n = shown(hrow[cc]).trim() || ('Column ' + (cc + 1));
+      const k = n.toLowerCase();
+      seen[k] = (seen[k] || 0) + 1;
+      if (seen[k] > 1) n = n + ' (' + seen[k] + ')';
+      keep.push({ name: n, idx: cc });
+    }
+    return {
+      names: keep.map((x) => x.name),
+      rows: rows.map((x) => ({ cells: keep.map((kx) => x.cells[kx.idx]), line: x.line }))
+    };
+  }
+  function getTable(side) {
+    const src = state.src[side];
+    if (!src) return null;
+    return parseTable(getAoa(src, state.sheet[side]), state.header[side]);
+  }
+
+  /* ---------- merge engine ---------- */
+  function buildColumns(O, N, order) {
+    const oi = new Map(), ni = new Map();
+    O.names.forEach((n, i) => oi.set(colKey(n), i));
+    N.names.forEach((n, i) => ni.set(colKey(n), i));
+    let cols = O.names.map((n, i) => ({ name: n, key: colKey(n), o: i, n: ni.has(colKey(n)) ? ni.get(colKey(n)) : undefined }));
+    N.names.forEach((n, i) => { if (!oi.has(colKey(n))) cols.push({ name: n, key: colKey(n), o: undefined, n: i }); });
+    if (order && order.length) {
+      const pos = new Map();
+      order.forEach((k, i) => pos.set(k, i));
+      cols = cols.map((c, i) => ({ c, i })).sort((a, b) => {
+        const pa = pos.has(a.c.key) ? pos.get(a.c.key) : 1e6 + a.i;
+        const pb = pos.has(b.c.key) ? pos.get(b.c.key) : 1e6 + b.i;
+        return pa - pb;
+      }).map((x) => x.c);
+    }
+    return cols;
+  }
+  function fmtNum(v, z) {
+    try { return z && !/^general$/i.test(z) ? XLSX.SSF.format(z, v) : String(v); } catch (e) { return String(v); }
+  }
+  function resolveCell(rule, o, n) {
+    switch (rule) {
+      case 'new': return { cell: n, took: 'new' };
+      case 'old': return { cell: o, took: 'old' };
+      case 'oldfill': return isBlank(o) ? { cell: n, took: 'new' } : { cell: o, took: 'old' };
+      case 'sum': case 'max': case 'min':
+        if (isNum(o) && isNum(n)) {
+          let v = rule === 'sum' ? o.v + n.v : (rule === 'max' ? Math.max(o.v, n.v) : Math.min(o.v, n.v));
+          v = Math.round(v * 1e9) / 1e9;
+          const z = o.z || n.z;
+          return { cell: { t: 'n', v, z, w: fmtNum(v, z) }, took: 'calc' };
+        }
+        break;
+      case 'concat':
+        if (!isBlank(o) && !isBlank(n)) return { cell: { t: 's', v: shown(o) + ' | ' + shown(n) }, took: 'calc' };
+        break;
+      default: break;
+    }
+    return isBlank(n) ? { cell: o, took: 'old' } : { cell: n, took: 'new' };
+  }
+  function uniqRatio(rows, idx, cfg) {
+    if (!rows.length) return 0;
+    const set = new Set();
+    rows.forEach((r) => { const v = keyOf(r.cells[idx], cfg); if (v) set.add(v); });
+    return set.size / rows.length;
+  }
+  function autoKeyCols(O, N, cfg) {
+    let best = null, score = 0.899;
+    buildColumns(O, N).filter((c) => c.o !== undefined && c.n !== undefined).forEach((c) => {
+      const sc = Math.min(uniqRatio(O.rows, c.o, cfg), uniqRatio(N.rows, c.n, cfg));
+      if (sc > score) { best = c; score = sc; }
+    });
+    return best ? [best.key] : [];
+  }
+
+  function doMerge(O, N, cfg) {
+    const all = buildColumns(O, N, cfg.colOrder);
+    const vis = [];
+    all.forEach((c, i) => { if (!cfg.colExclude.has(c.key)) vis.push({ name: c.name, key: c.key, i, o: c.o, n: c.n }); });
+    const st = { oldRows: O.rows.length, newRows: N.rows.length, matched: 0, updated: 0, unchanged: 0, added: 0, oldOnly: 0, dupOld: 0, dupNew: 0, blankKeys: 0, dedupRemoved: 0 };
+    const align = (row, side) => all.map((c) => { const i = c[side]; return i === undefined ? null : row.cells[i]; });
+    let out = [], changes = [];
+    const keyIdx = [];
+    if (cfg.mode === 'key') all.forEach((c, i) => { if (c.o !== undefined && c.n !== undefined && cfg.keyCols.indexOf(c.key) >= 0) keyIdx.push(i); });
+    const useKey = cfg.mode === 'key' && keyIdx.length > 0;
+    const mode = cfg.mode === 'stack' ? 'stack' : (useKey ? 'key' : 'position');
+
+    if (mode === 'stack') {
+      O.rows.forEach((row, i) => out.push({ id: 'so:' + i, status: 'old', cells: align(row, 'o'), changed: new Map(), label: 'Old row ' + row.line }));
+      N.rows.forEach((row, i) => out.push({ id: 'sn:' + i, status: 'added', cells: align(row, 'n'), changed: new Map(), label: 'New row ' + row.line }));
+      st.oldOnly = O.rows.length; st.added = N.rows.length;
+    } else {
+      const keyed = (aligned, idx, side, counts) => {
+        if (!useKey) return 'p' + idx;
+        const parts = keyIdx.map((i) => keyOf(aligned[i], cfg));
+        if (parts.every((p) => p === '')) { st.blankKeys++; return 'x' + side + idx; }
+        const base = parts.join('\u0001');
+        const k = (counts.get(base) || 0) + 1;
+        counts.set(base, k);
+        if (k > 1) { if (side === 'o') st.dupOld++; else st.dupNew++; }
+        return base + '\u0002' + k;
+      };
+      const label = (aligned, line) => {
+        if (!useKey) return 'Row ' + line;
+        const s = keyIdx.map((i) => shown(aligned[i])).filter(Boolean).join(' / ');
+        return s || ('Row ' + line);
+      };
+      const nCounts = new Map(), nMap = new Map(), oCounts = new Map(), used = new Set();
+      N.rows.forEach((row, i) => {
+        const a = align(row, 'n');
+        nMap.set(keyed(a, i, 'n', nCounts), { a, line: row.line });
+      });
+      O.rows.forEach((orow, i) => {
+        const oa = align(orow, 'o');
+        const key = keyed(oa, i, 'o', oCounts);
+        const hit = nMap.get(key);
+        const lab = label(oa, orow.line);
+        if (!hit) {
+          st.oldOnly++;
+          if (cfg.onlyOld === 'keep') out.push({ id: 'o:' + key, status: 'old', cells: oa, changed: new Map(), label: lab });
+          return;
+        }
+        used.add(key);
+        st.matched++;
+        const id = 'm:' + key;
+        const cells = new Array(all.length), changed = new Map();
+        all.forEach((c, ci) => {
+          const o = oa[ci], n = hit.a[ci];
+          if (c.o === undefined) { cells[ci] = n; return; }
+          if (c.n === undefined) { cells[ci] = o; return; }
+          if (keyIdx.indexOf(ci) >= 0 || nz(val(o), cfg) === nz(val(n), cfg)) { cells[ci] = o || n; return; }
+          const ov = cfg.overrides.get(id + '\u0003' + c.key);
+          let res;
+          if (ov === 'old') res = { cell: o, took: 'old' };
+          else if (ov === 'new') res = { cell: n, took: 'new' };
+          else res = resolveCell(cfg.colRules.get(c.key) || cfg.conflict, o, n);
+          cells[ci] = res.cell || null;
+          changed.set(ci, { oldV: shown(o), newV: shown(n), took: res.took, ov: !!ov });
+          changes.push({ id, key: lab, col: c.name, colKey: c.key, oldV: shown(o), newV: shown(n), took: res.took, ov: !!ov });
+        });
+        if (changed.size) st.updated++; else st.unchanged++;
+        out.push({ id, status: changed.size ? 'updated' : 'same', cells, changed, label: lab });
+      });
+      nMap.forEach((v, k) => {
+        if (used.has(k)) return;
+        st.added++;
+        if (cfg.onlyNew === 'keep') out.push({ id: 'n:' + k, status: 'added', cells: v.a, changed: new Map(), label: label(v.a, v.line) });
+      });
+    }
+
+    if (cfg.dedupe) {
+      const seen = new Set(), keep = [];
+      out.forEach((r) => {
+        const sig = vis.map((c) => nz(val(r.cells[c.i]), cfg)).join('\u0001');
+        if (seen.has(sig)) { st.dedupRemoved++; return; }
+        seen.add(sig); keep.push(r);
+      });
+      out = keep;
+      const ids = new Set(out.map((r) => r.id));
+      changes = changes.filter((c) => ids.has(c.id));
+      st.updated = out.filter((r) => r.status === 'updated').length;
+      st.unchanged = out.filter((r) => r.status === 'same').length;
+    }
+
+    const si = cfg.sortCol ? all.findIndex((c) => c.key === cfg.sortCol) : -1;
+    if (si >= 0) {
+      const dir = cfg.sortDir === 'desc' ? -1 : 1;
+      out = out.map((r, i) => ({ r, i })).sort((a, b) => {
+        const x = a.r.cells[si], y = b.r.cells[si];
+        const bx = isBlank(x), by = isBlank(y);
+        if (bx || by) return bx && by ? a.i - b.i : (bx ? 1 : -1);
+        const c = (isNum(x) && isNum(y)) ? x.v - y.v : shown(x).localeCompare(shown(y), undefined, { numeric: true, sensitivity: 'base' });
+        return c ? c * dir : a.i - b.i;
+      }).map((x) => x.r);
+    }
+    out.forEach((r) => { r.skip = cfg.excluded.has(r.id); });
+
+    const colChanges = new Map();
+    changes.forEach((c) => {
+      const e = colChanges.get(c.colKey) || { name: c.col, count: 0 };
+      e.count++; colChanges.set(c.colKey, e);
+    });
+    return {
+      columns: all, vis, rows: out, changes, stats: st, mode, usedKey: useKey, colChanges,
+      keyNames: keyIdx.map((i) => all[i].name),
+      newCols: all.filter((c) => c.o === undefined).map((c) => c.name),
+      goneCols: all.filter((c) => c.n === undefined).map((c) => c.name)
+    };
+  }
+
+  const cfgNow = () => ({
+    mode: state.mode, keyCols: state.keyCols, caseI: state.caseI, trimWs: state.trimWs, zeros: state.zeros,
+    conflict: state.conflict, onlyOld: state.onlyOld, onlyNew: state.onlyNew, dedupe: state.dedupe,
+    sortCol: state.sortCol, sortDir: state.sortDir, colRules: state.colRules, colExclude: state.colExclude,
+    colOrder: state.colOrder, overrides: state.overrides, excluded: state.excluded
+  });
+  function mergeAuto(O, N) {
+    const base = cfgNow();
+    const cfg = Object.assign({}, base, {
+      colRules: new Map(), colExclude: new Set(), colOrder: [], overrides: new Map(), excluded: new Set(), sortCol: '', dedupe: false
+    });
+    const oneSided = !O.names.length || !N.names.length;
+    if (oneSided) { cfg.mode = 'position'; cfg.onlyOld = 'keep'; cfg.onlyNew = 'keep'; }
+    else if (base.mode !== 'stack') {
+      const k = autoKeyCols(O, N, cfg);
+      cfg.mode = k.length ? 'key' : 'position'; cfg.keyCols = k;
+    }
+    return doMerge(O, N, cfg);
+  }
+
+  /* ---------- sample data ---------- */
+  const P = (x) => ({ t: 'n', v: x, z: '0.00', w: x.toFixed(2) });
+  function mk(rows) {
+    return rows.map((r) => r.map((v) => {
+      if (v === '' || v == null) return null;
+      if (typeof v === 'object') return v;
+      if (typeof v === 'number') return { t: 'n', v, w: String(v) };
+      return { t: 's', v };
+    }));
+  }
+  function loadSample() {
+    state.src.old = {
+      name: 'inventory-old.xlsx', wb: null, sample: true, csv: false, sheetNames: ['Inventory', 'Suppliers'],
+      cache: {
+        Inventory: mk([
+          ['SKU', 'Product', 'Price', 'Stock', 'Supplier'],
+          ['A-1001', 'Copper pipe 15mm', P(4.5), 120, 'Rafidain Metals'],
+          ['A-1002', 'Copper elbow 15mm', P(0.85), 600, 'Rafidain Metals'],
+          ['A-1003', 'PTFE tape', P(0.4), 900, 'Tigris Supply'],
+          ['B-2001', 'Ball valve 1/2 in', P(6.2), 85, 'Tigris Supply'],
+          ['B-2002', 'Ball valve 3/4 in', P(8.1), 60, 'Tigris Supply'],
+          ['C-3001', 'Pipe cutter', P(11), 24, 'Basra Tools']
+        ]),
+        Suppliers: mk([
+          ['Supplier', 'City', 'Phone'],
+          ['Rafidain Metals', 'Baghdad', '0770 000 1111'],
+          ['Tigris Supply', 'Mosul', '0750 000 2222'],
+          ['Basra Tools', 'Basra', '0780 000 3333']
+        ])
+      }
+    };
+    state.src.new = {
+      name: 'inventory-new.xlsx', wb: null, sample: true, csv: false, sheetNames: ['Inventory', 'Suppliers'],
+      cache: {
+        Inventory: mk([
+          ['SKU', 'Product', 'Price', 'Stock', 'Supplier', 'Warehouse'],
+          ['A-1001', 'Copper pipe 15mm', P(4.75), 96, 'Rafidain Metals', 'Erbil'],
+          ['A-1002', 'Copper elbow 15mm', P(0.85), 540, 'Rafidain Metals', 'Erbil'],
+          ['A-1003', 'PTFE tape', P(0.4), 900, '', 'Baghdad'],
+          ['B-2001', 'Ball valve 1/2 in', P(6.2), 85, 'Tigris Supply', 'Baghdad'],
+          ['B-2003', 'Ball valve 1 in', P(12.4), 30, 'Tigris Supply', 'Baghdad'],
+          ['C-3001', 'Pipe cutter', P(11), 24, 'Basra Tools', 'Basra']
+        ]),
+        Suppliers: mk([
+          ['Supplier', 'City', 'Phone'],
+          ['Rafidain Metals', 'Baghdad', '0770 000 1111'],
+          ['Tigris Supply', 'Mosul', '0750 999 2222'],
+          ['Basra Tools', 'Basra', '0780 000 3333'],
+          ['Erbil Fittings', 'Erbil', '0751 000 4444']
+        ])
+      }
+    };
+    state.sheet.old = 'Inventory'; state.sheet.new = 'Inventory';
+    state.header.old = 1; state.header.new = 1;
+    state.err.old = ''; state.err.new = '';
+  }
+
+  /* ---------- rendering: files ---------- */
+  function renderCard(side) {
+    const src = state.src[side];
+    const opts = src ? src.sheetNames.map((n) =>
+      '<option value="' + esc(n) + '"' + (n === state.sheet[side] ? ' selected' : '') + '>' + esc(n) + '</option>').join('') : '';
+    const dis = src ? '' : ' disabled';
+    $('card-' + side).innerHTML =
+      '<div class="file-top"><h3>' + LABEL[side] + '</h3>' + (src && src.sample ? '<span class="tag tag-ex">Example</span>' : '') + '</div>' +
+      '<label class="drop" data-side="' + side + '" for="file-' + side + '">' +
+        '<input type="file" id="file-' + side + '" data-side="' + side + '" accept="' + ACCEPT + '">' +
+        '<span class="drop-name" dir="auto">' + esc(src ? src.name : 'No file yet') + '</span>' +
+        '<span class="drop-hint">' + (src ? 'Choose another file or drop one here' : 'Choose a file or drop one here') + '</span>' +
+      '</label>' +
+      (state.err[side] ? '<p class="err" role="alert">' + esc(state.err[side]) + '</p>' : '') +
+      '<div class="file-opts">' +
+        '<div><label for="sheet-' + side + '">Sheet</label><select id="sheet-' + side + '" data-sheet data-side="' + side + '"' + dis + '>' + opts + '</select></div>' +
+        '<div><label for="hdr-' + side + '">Header row</label><input type="number" min="1" id="hdr-' + side + '" data-header data-side="' + side + '" value="' + state.header[side] + '"' + dis + '></div>' +
+      '</div>' +
+      '<p class="dims" id="dims-' + side + '"></p>';
+  }
+  function updateDims() {
+    ['old', 'new'].forEach((side) => {
+      const T = side === 'old' ? state.O : state.N;
+      const el = $('dims-' + side);
+      if (el) el.textContent = T ? T.rows.length + ' rows × ' + T.names.length + ' columns' : '';
+    });
+    $('exNote').hidden = !((state.src.old && state.src.old.sample) || (state.src.new && state.src.new.sample));
+  }
+
+  /* ---------- rendering: rules ---------- */
+  function autoKey() {
+    const k = autoKeyCols(state.O, state.N, cfgNow());
+    if (k.length) { state.keyCols = k; state.keyNote = ''; }
+    else { state.keyCols = []; state.mode = 'position'; state.keyNote = 'No column has mostly unique values in both files, so rows are matched by position.'; }
+  }
+  function updateKeyHint() {
+    const el = $('keyHint');
+    if (!el) return;
+    const names = state.common.filter((c) => state.keyCols.indexOf(c.key) >= 0).map((c) => c.name);
+    el.textContent = names.length
+      ? 'Rows with the same ' + names.join(' + ') + ' in both files count as the same row. The percentage is how unique that column is. Aim for 100%.'
+      : 'Pick at least one column. Until then, rows are matched by position.';
+  }
+  function renderKeyArea() {
+    $('mode-key').setAttribute('aria-pressed', String(state.mode === 'key'));
+    $('mode-pos').setAttribute('aria-pressed', String(state.mode === 'position'));
+    $('mode-stack').setAttribute('aria-pressed', String(state.mode === 'stack'));
+    $('onlyOld').disabled = $('onlyNew').disabled = state.mode === 'stack';
+    const area = $('keyArea');
+    if (state.mode === 'position') {
+      area.innerHTML = '<p class="hint" style="margin-top:0">' + (state.keyNote ? esc(state.keyNote) + ' ' : '') +
+        'Row 1 of the old file is merged with row 1 of the new file, row 2 with row 2, and so on. Use this only when both files list rows in the same order.</p>';
+    } else if (state.mode === 'stack') {
+      area.innerHTML = '<p class="hint" style="margin-top:0">Every row from the old file, then every row from the new file, in one list. Columns with the same name line up. Tick Remove duplicate rows below to drop repeats.</p>';
+    } else {
+      const cfg = cfgNow();
+      area.innerHTML = '<div class="chips">' + state.common.map((c) => {
+        const on = state.keyCols.indexOf(c.key) >= 0;
+        const u = Math.round(Math.min(uniqRatio(state.O.rows, c.o, cfg), uniqRatio(state.N.rows, c.n, cfg)) * 100);
+        return '<button type="button" class="chip" dir="auto" data-key="' + esc(c.key) + '" aria-pressed="' + on + '">' + esc(c.name) + '<small>' + u + '%</small></button>';
+      }).join('') + '</div><p class="hint" id="keyHint"></p>';
+      updateKeyHint();
+    }
+  }
+  const RULES = [
+    ['', 'Use the setting above'], ['new', 'Always new'], ['old', 'Always old'],
+    ['fill', 'New, else old'], ['oldfill', 'Old, else new'],
+    ['sum', 'Add together'], ['max', 'Larger number'], ['min', 'Smaller number'], ['concat', 'Join both with |']
+  ];
+  function renderColumns() {
+    const wrap = $('colsTable');
+    if (!state.O || !state.N) { wrap.innerHTML = '<div class="empty">Add both files to see their columns.</div>'; return; }
+    const all = buildColumns(state.O, state.N, state.colOrder);
+    state.colOrder = all.map((c) => c.key);
+    wrap.innerHTML = '<table class="coltable"><thead><tr><th>Column</th><th>Found in</th><th>When values differ</th><th>Include</th><th>Move</th></tr></thead><tbody>' +
+      all.map((c, i) => {
+        const both = c.o !== undefined && c.n !== undefined;
+        const where = both ? 'Both files' : (c.o !== undefined ? 'Old only' : 'New only');
+        const cur = state.colRules.get(c.key) || '';
+        const sel = both
+          ? '<select data-colrule="' + esc(c.key) + '" aria-label="Rule for ' + esc(c.name) + '">' + RULES.map((r) => '<option value="' + r[0] + '"' + (r[0] === cur ? ' selected' : '') + '>' + r[1] + '</option>').join('') + '</select>'
+          : '<span class="tag tag-mute">Not needed</span>';
+        return '<tr><td dir="auto"><b>' + esc(c.name) + '</b></td><td>' + where + '</td><td>' + sel + '</td>' +
+          '<td><input type="checkbox" data-colinc="' + esc(c.key) + '" aria-label="Include ' + esc(c.name) + '"' + (state.colExclude.has(c.key) ? '' : ' checked') + '></td>' +
+          '<td class="mv"><button type="button" class="secondary small" data-colmove="' + esc(c.key) + '" data-dir="-1" aria-label="Move ' + esc(c.name) + ' left"' + (i === 0 ? ' disabled' : '') + '>&larr;</button> ' +
+          '<button type="button" class="secondary small" data-colmove="' + esc(c.key) + '" data-dir="1" aria-label="Move ' + esc(c.name) + ' right"' + (i === all.length - 1 ? ' disabled' : '') + '>&rarr;</button></td></tr>';
+      }).join('') + '</tbody></table>';
+  }
+  function renderSortOptions() {
+    const sel = $('sortCol');
+    let html = '<option value="">Original order</option>';
+    if (state.O && state.N) {
+      buildColumns(state.O, state.N, state.colOrder).forEach((c) => {
+        html += '<option value="' + esc(c.key) + '"' + (c.key === state.sortCol ? ' selected' : '') + '>' + esc(c.name) + '</option>';
+      });
+    }
+    sel.innerHTML = html;
+    $('sortDir').value = state.sortDir;
+  }
+  function syncControls() {
+    $('opt-case').checked = state.caseI; $('opt-trim').checked = state.trimWs; $('opt-zeros').checked = state.zeros;
+    $('opt-dedupe').checked = state.dedupe;
+    $('conflict').value = state.conflict; $('onlyNew').value = state.onlyNew; $('onlyOld').value = state.onlyOld;
+    ['styled', 'status', 'changes', 'summary', 'others'].forEach((k) => { $('x-' + k).checked = state.exp[k]; });
+  }
+
+  /* ---------- pipeline ---------- */
+  function resetChoices(full) {
+    state.overrides.clear(); state.excluded.clear(); state.colRules.clear(); state.colExclude.clear();
+    state.colOrder = []; state.sortCol = ''; state.page = 0;
+    if (full) {
+      state.keyAuto = true; state.keyCols = []; state.mode = 'key'; state.keyNote = ''; state.autoNote = '';
+      if (state.zerosAuto) { state.zeros = false; state.zerosAuto = false; syncControls(); }
+    }
+  }
+  function autoZeros() {
+    if (state.mode !== 'key' || state.zeros || !state.keyCols.length) return;
+    const c = state.common.find((x) => x.key === state.keyCols[0]);
+    if (!c) return;
+    const overlap = (zeros) => {
+      const cfg = Object.assign(cfgNow(), { zeros });
+      const a = new Set();
+      state.O.rows.forEach((r) => { const v = keyOf(r.cells[c.o], cfg); if (v) a.add(v); });
+      let n = 0;
+      const seen = new Set();
+      state.N.rows.forEach((r) => { const v = keyOf(r.cells[c.n], cfg); if (v && a.has(v) && !seen.has(v)) { seen.add(v); n++; } });
+      return n;
+    };
+    const gain = overlap(true) - overlap(false);
+    if (gain >= 1) {
+      state.zeros = true; state.zerosAuto = true; syncControls();
+      state.autoNote = 'Leading zeros are ignored in keys because that matched ' + gain + ' more row' + (gain === 1 ? '' : 's') + '. You can turn this off above.';
+    }
+  }
+  function refreshAll(reset) {
+    state.O = getTable('old'); state.N = getTable('new');
+    updateDims();
+    if (reset) resetChoices(true);
+    if (!state.O || !state.N) {
+      state.result = null; state.common = [];
+      renderKeyArea(); renderColumns(); renderSortOptions();
+      renderNoResult(state.O || state.N ? 'Add the other file to see the merged result.' : 'Add both files to see the merged result.');
+      return;
+    }
+    state.common = buildColumns(state.O, state.N).filter((c) => c.o !== undefined && c.n !== undefined);
+    state.keyCols = state.keyCols.filter((k) => state.common.some((c) => c.key === k));
+    if (state.keyAuto && state.mode === 'key' && state.keyCols.length === 0) { autoKey(); if (reset) autoZeros(); }
+    renderKeyArea(); renderColumns(); renderSortOptions();
+    recompute();
+  }
+  function recompute() {
+    if (!state.O || !state.N) return;
+    if (state.mode !== 'stack' && !state.common.length) {
+      state.result = null;
+      renderNoResult('The two sheets share no column names. Check the sheet and header row for each file, or use Stack one under the other.');
+      return;
+    }
+    state.result = doMerge(state.O, state.N, cfgNow());
+    renderResult();
+  }
+
+  /* ---------- rendering: result ---------- */
+  const setStatus = (t) => { $('status').textContent = t || ''; };
+  function updateButtons() {
+    const has = !!state.result;
+    ['dl-xlsx', 'dl-csv', 'dl-json', 'copy'].forEach((id) => { $(id).disabled = !has; });
+  }
+  function renderNoResult(msg) {
+    ['stats', 'notes', 'tabs', 'legend', 'pager'].forEach((id) => { $(id).innerHTML = ''; });
+    $('colbarsBox').hidden = true; $('manual').hidden = true; $('onlyChgWrap').hidden = true;
+    $('tablewrap').innerHTML = '<div class="empty">' + esc(msg) + '</div>';
+    $('fname').placeholder = 'merged';
+    updateButtons();
+  }
+  const statusLabel = (s, mode) => mode === 'stack'
+    ? (s === 'old' ? 'From old file' : 'From new file')
+    : ({ same: 'Unchanged', updated: 'Updated', added: 'New', old: 'Only in old' }[s] || s);
+  const keptRows = (R) => R.rows.filter((r) => !r.skip);
+
+  function renderResult() {
+    const R = state.result, st = R.stats;
+    const stat = (label, num, sub) => '<div><dt>' + label + '</dt><dd>' + num + (sub ? '<small>' + sub + '</small>' : '') + '</dd></div>';
+    const kept = keptRows(R).length, off = R.rows.length - kept;
+    if (R.mode === 'stack') {
+      $('stats').innerHTML = stat('Rows in result', kept, off ? off + ' left out by you' : 'both files stacked') +
+        stat('From old file', st.oldRows, 'rows') + stat('From new file', st.newRows, 'rows') +
+        stat('Duplicates removed', st.dedupRemoved, state.dedupe ? 'identical rows' : 'option is off');
+    } else {
+      $('stats').innerHTML = stat('Rows in result', kept, off ? off + ' left out by you' : 'merged') +
+        stat('Updated rows', st.updated, st.unchanged + ' unchanged') +
+        stat('New rows', st.added, state.onlyNew === 'keep' ? 'added' : 'left out') +
+        stat('Only in old', st.oldOnly, state.onlyOld === 'keep' ? 'kept' : 'removed') +
+        stat('Changed values', R.changes.length, 'see Change log') +
+        (state.dedupe ? stat('Duplicates removed', st.dedupRemoved, 'identical rows') : '');
+    }
+    const notes = [];
+    if (state.autoNote) notes.push(state.autoNote);
+    if (R.newCols.length) notes.push('Columns added from the new file: ' + R.newCols.join(', ') + '.');
+    if (R.goneCols.length) notes.push('Columns only in the old file, kept as they were: ' + R.goneCols.join(', ') + '.');
+    if (state.mode === 'key' && !R.usedKey) notes.push('No key column is selected, so rows are matched by position.');
+    if (st.dupOld || st.dupNew) notes.push('Some keys repeat (' + st.dupOld + ' extra rows in old, ' + st.dupNew + ' in new). Repeats are matched in the order they appear.');
+    if (st.blankKeys) notes.push(st.blankKeys + ' rows have an empty key and are never matched.');
+    if (state.colExclude.size) notes.push(state.colExclude.size === 1 ? '1 column is left out of the result.' : state.colExclude.size + ' columns are left out of the result.');
+    $('notes').innerHTML = notes.map((n) => '<li>' + esc(n) + '</li>').join('');
+
+    const cc = Array.from(R.colChanges.values()).sort((a, b) => b.count - a.count).slice(0, 8);
+    $('colbarsBox').hidden = !cc.length;
+    $('colbars').innerHTML = cc.map((e) => '<div class="bar"><span dir="auto" title="' + esc(e.name) + '">' + esc(e.name) + '</span><i style="width:' + Math.max(2, Math.round(e.count / cc[0].count * 100)) + '%"></i><b>' + e.count + '</b></div>').join('');
+
+    const manual = state.overrides.size + state.excluded.size;
+    $('manual').hidden = !manual;
+    $('manual').innerHTML = '<span>You made ' + manual + ' manual choice' + (manual === 1 ? '' : 's') + ' (cells you switched or rows you left out).</span><button type="button" class="secondary small" id="clearManual">Undo my choices</button>';
+
+    const cnt = (s) => R.rows.filter((r) => r.status === s).length;
+    const VIEWS = R.mode === 'stack'
+      ? [['all', 'All rows', R.rows.length], ['old', 'From old file', cnt('old')], ['added', 'From new file', cnt('added')]]
+      : [['all', 'All rows', R.rows.length], ['updated', 'Updated', cnt('updated')], ['added', 'New', cnt('added')], ['old', 'Only in old', cnt('old')], ['log', 'Change log', R.changes.length]];
+    if (!VIEWS.some((v) => v[0] === state.view)) state.view = 'all';
+    $('tabs').innerHTML = VIEWS.map((v) => '<button type="button" class="tab" data-view="' + v[0] + '" aria-pressed="' + (state.view === v[0]) + '">' + v[1] + '<span>' + v[2] + '</span></button>').join('');
+    $('legend').innerHTML = R.mode === 'stack' ? '' :
+      '<span><i class="key key-chg"></i>New value used (click to switch)</span>' +
+      '<span><i class="key key-kept"></i>Old value kept</span>' +
+      '<span><i class="key key-calc"></i>Calculated</span>';
+    $('onlyChgWrap').hidden = state.view !== 'updated';
+    $('fname').placeholder = defaultName();
+    renderTable();
+    updateButtons();
+  }
+
+  function renderTable() {
+    const R = state.result;
+    if (!R) return;
+    const wrap = $('tablewrap');
+    const top = wrap.scrollTop, left = wrap.scrollLeft;
+    const q = state.q.trim().toLowerCase();
+    let html = '', total = 0, from = 0, to = 0;
+    const clampPage = (n) => {
+      const pages = Math.max(1, Math.ceil(n / PAGE));
+      if (state.page >= pages) state.page = pages - 1;
+      if (state.page < 0) state.page = 0;
+      from = state.page * PAGE; to = Math.min(n, from + PAGE);
+    };
+    if (state.view === 'log') {
+      const list = R.changes.filter((c) => !q || (c.key + ' ' + c.col + ' ' + c.oldV + ' ' + c.newV).toLowerCase().includes(q));
+      total = list.length; clampPage(total);
+      const TOOK = { new: ['New used', 't-chg'], old: ['Old kept', 't-old'], calc: ['Calculated', 't-calc'] };
+      html = total
+        ? '<table><thead><tr><th>Row</th><th>Column</th><th>Old value</th><th>New value</th><th>Result</th></tr></thead><tbody>' +
+          list.slice(from, to).map((c) => '<tr><td dir="auto">' + esc(c.key) + '</td><td dir="auto">' + esc(c.col) + '</td><td dir="auto">' + esc(c.oldV || '(blank)') + '</td><td dir="auto">' + esc(c.newV || '(blank)') + '</td><td class="st"><span class="tag ' + TOOK[c.took][1] + '">' + (c.ov ? 'Your choice: ' : '') + TOOK[c.took][0] + '</span></td></tr>').join('') + '</tbody></table>'
+        : '<div class="empty">' + (q ? 'Nothing matches your search.' : 'No values differ between the two files.') + '</div>';
+    } else {
+      let list = R.rows.map((r, ri) => ({ r, ri })).filter((x) => state.view === 'all' || x.r.status === state.view);
+      if (q) list = list.filter((x) => R.vis.some((c) => shown(x.r.cells[c.i]).toLowerCase().includes(q)) || x.r.label.toLowerCase().includes(q));
+      total = list.length; clampPage(total);
+      const page = list.slice(from, to);
+      let cols = R.vis;
+      if (state.view === 'updated' && state.onlyChg) {
+        const keys = new Set(R.keyNames.map(colKey));
+        const hit = new Set();
+        list.forEach((x) => x.r.changed.forEach((v, ci) => hit.add(ci)));
+        cols = R.vis.filter((c) => keys.has(c.key) || hit.has(c.i));
+      }
+      const TAG = R.mode === 'stack'
+        ? { old: ['From old', 't-old'], added: ['From new', 't-add'] }
+        : { updated: ['Updated', 't-chg'], added: ['New', 't-add'], old: ['Only in old', 't-old'] };
+      const head = '<tr><th>Keep</th><th>Status</th>' + cols.map((c) => '<th dir="auto"' + (c.o === undefined ? ' class="newcol"' : '') + '>' + esc(c.name) + '</th>').join('') + '</tr>';
+      const body = page.map((x) => {
+        const r = x.r, tg = TAG[r.status];
+        return '<tr' + (r.skip ? ' class="skip"' : '') + '><td class="keep"><input type="checkbox" data-keep="' + x.ri + '" aria-label="Keep row ' + esc(r.label) + '"' + (r.skip ? '' : ' checked') + '></td>' +
+          '<td class="st">' + (tg ? '<span class="tag ' + tg[1] + '">' + tg[0] + '</span>' : '') + '</td>' +
+          cols.map((c) => {
+            const cell = r.cells[c.i], chg = r.changed.get(c.i), cls = [];
+            if (isNum(cell)) cls.push('num');
+            let attrs = '';
+            if (chg) {
+              cls.push(chg.took === 'new' ? 'chg' : (chg.took === 'calc' ? 'calc' : 'kept'));
+              if (chg.ov) cls.push('ovr');
+              attrs = ' tabindex="0" role="button" data-ri="' + x.ri + '" data-c="' + esc(c.key) + '" title="' + esc('Old: ' + (chg.oldV || '(blank)') + '   New: ' + (chg.newV || '(blank)') + '   Click to switch') + '"';
+            }
+            return '<td dir="auto" class="' + cls.join(' ') + '"' + attrs + '>' + esc(shown(cell)) + '</td>';
+          }).join('') + '</tr>';
+      }).join('');
+      html = page.length ? '<table><thead>' + head + '</thead><tbody>' + body + '</tbody></table>' : '<div class="empty">' + (q ? 'Nothing matches your search.' : 'No rows to show here.') + '</div>';
+    }
+    wrap.innerHTML = html;
+    wrap.scrollTop = top; wrap.scrollLeft = left;
+    const pages = Math.max(1, Math.ceil(total / PAGE));
+    $('pager').innerHTML = total
+      ? '<span>Showing ' + (from + 1) + ' to ' + to + ' of ' + total + '</span>' + (pages > 1
+        ? '<button type="button" class="secondary small" id="pg-prev"' + (state.page === 0 ? ' disabled' : '') + '>Previous</button><button type="button" class="secondary small" id="pg-next"' + (state.page >= pages - 1 ? ' disabled' : '') + '>Next</button>' : '')
+      : '';
+  }
+
+  /* ---------- export plan ---------- */
+  const SHEET_BAD = /[\\\/?*\[\]:]/g;
+  function sheetName(s, fallback) {
+    const n = String(s || fallback).replace(SHEET_BAD, ' ').trim().slice(0, 31);
+    return n || fallback;
+  }
+  function uniqueName(name, used) {
+    let base = name, n = 1;
+    while (used.has(name.toLowerCase())) { n++; const suf = ' (' + n + ')'; name = base.slice(0, 31 - suf.length) + suf; }
+    used.add(name.toLowerCase());
+    return name;
+  }
+  function otherResults() {
+    const so = state.src.old, sn = state.src.new, usedO = state.sheet.old, usedN = state.sheet.new;
+    const out = [], nLower = new Map(), seenN = new Set([usedN]);
+    sn.sheetNames.forEach((n) => nLower.set(n.toLowerCase(), n));
+    so.sheetNames.forEach((name) => {
+      if (name === usedO) return;
+      const match = nLower.get(name.toLowerCase());
+      const O = parseTable(getAoa(so, name), 1);
+      let N = emptyTable();
+      if (match && match !== usedN) { N = parseTable(getAoa(sn, match), 1); seenN.add(match); }
+      out.push({ name, R: mergeAuto(O, N) });
+    });
+    sn.sheetNames.forEach((name) => {
+      if (seenN.has(name)) return;
+      out.push({ name, R: mergeAuto(emptyTable(), parseTable(getAoa(sn, name), 1)) });
+    });
+    return out;
+  }
+  const TOOK_TXT = { new: 'New value used', old: 'Old value kept', calc: 'Calculated' };
+  const MODE_TXT = { key: 'Matching key', position: 'Row position', stack: 'Stacked' };
+  const RULE_TXT = { fill: 'New value, old where new is blank', new: 'Always new', oldfill: 'Old value, blanks filled from new', old: 'Always old' };
+
+  function buildPlan(o) {
+    const R = state.result, sheets = [];
+    sheets.push({ name: sheetName(state.sheet.new || state.sheet.old, 'Merged'), type: 'result', R });
+    const others = o.others ? otherResults() : [];
+    others.forEach((x) => sheets.push({ name: sheetName(x.name, 'Sheet'), type: 'result', R: x.R }));
+    if (o.changes) {
+      const aoa = [['Sheet', 'Row', 'Column', 'Old value', 'New value', 'Result']];
+      const add = (sn, RR) => RR.changes.forEach((c) => aoa.push([sn, c.key, c.col, c.oldV, c.newV, (c.ov ? 'Your choice: ' : '') + TOOK_TXT[c.took]]));
+      add(sheets[0].name, R);
+      others.forEach((x, i) => add(sheets[i + 1].name, x.R));
+      sheets.push({ name: 'Changes', type: 'table', aoa, widths: [18, 26, 22, 28, 28, 24] });
+    }
+    if (o.summary) {
+      const st = R.stats;
+      const aoa = [
+        ['Excel Merger summary', ''],
+        ['Created', new Date().toLocaleString()],
+        ['Old file', state.src.old.name + ' (sheet ' + state.sheet.old + ')'],
+        ['New file', state.src.new.name + ' (sheet ' + state.sheet.new + ')'],
+        ['Combined by', MODE_TXT[R.mode] + (R.usedKey ? ': ' + R.keyNames.join(' + ') : '')],
+        ['When values differ', RULE_TXT[state.conflict]],
+        ['Rows in result', keptRows(R).length],
+        ['Rows updated', st.updated],
+        ['Rows only in new file', st.added],
+        ['Rows only in old file', st.oldOnly],
+        ['Changed values', R.changes.length],
+        ['Duplicates removed', st.dedupRemoved],
+        ['Rows you left out', R.rows.length - keptRows(R).length],
+        ['Values you switched', state.overrides.size]
+      ];
+      others.forEach((x, i) => aoa.push(['Sheet ' + sheets[i + 1].name, keptRows(x.R).length + ' rows, ' + x.R.changes.length + ' changed values']));
+      sheets.push({ name: 'Summary', type: 'table', aoa, widths: [26, 64], title: true });
+    }
+    const used = new Set();
+    sheets.forEach((s) => { s.name = uniqueName(s.name, used); });
+    return sheets;
+  }
+
+  /* ---------- writers ---------- */
+  const exVal = (c) => (isBlank(c) ? null : (c.t === 'n' ? c.v : (c.t === 'b' ? !!c.v : String(c.v))));
+  const FILL = (argb) => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
+  const CHG_FILL = { new: 'FFFDE9A8', calc: 'FFCFE9D4', old: 'FFEFEFEF' };
+  const ST_FILL = { updated: 'FFFDE9A8', added: 'FFCFE3FB', old: 'FFF4D3D3' };
+
+  function writeStyled(plan, o) {
+    const wb = new window.ExcelJS.Workbook();
+    wb.creator = 'Excel Merger'; wb.created = new Date();
+    plan.forEach((s) => {
+      const ws = wb.addWorksheet(s.name, s.title ? {} : { views: [{ state: 'frozen', ySplit: 1 }] });
+      if (s.type === 'table') {
+        s.aoa.forEach((row, ri) => {
+          const r = ws.addRow(row);
+          if ((!s.title && ri === 0) || (s.title && ri === 0)) {
+            r.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+            r.eachCell((c) => { c.fill = FILL('FF14684A'); });
+          } else if (s.title) { r.getCell(1).font = { bold: true }; }
+        });
+        s.widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+        if (!s.title) ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: s.widths.length } };
+        return;
+      }
+      const R = s.R, off = o.status ? 1 : 0;
+      const heads = (o.status ? ['Status'] : []).concat(R.vis.map((c) => c.name));
+      const hr = ws.addRow(heads);
+      hr.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      hr.eachCell((c) => { c.fill = FILL('FF14684A'); });
+      const widths = heads.map((h) => Math.min(48, Math.max(8, h.length + 3)));
+      let notes = 0;
+      keptRows(R).forEach((r) => {
+        const row = ws.addRow((o.status ? [statusLabel(r.status, R.mode)] : []).concat(R.vis.map((c) => exVal(r.cells[c.i]))));
+        if (o.status) {
+          const f = ST_FILL[r.status];
+          if (f && R.mode !== 'stack') row.getCell(1).fill = FILL(f);
+          widths[0] = Math.max(widths[0], statusLabel(r.status, R.mode).length + 2);
+        }
+        R.vis.forEach((c, vi) => {
+          const cell = row.getCell(vi + 1 + off), src = r.cells[c.i];
+          if (isNum(src) && src.z && !/^general$/i.test(src.z)) cell.numFmt = src.z;
+          const ch = r.changed.get(c.i);
+          if (o.styled && ch) {
+            cell.fill = FILL(CHG_FILL[ch.took]);
+            if (notes < NOTE_LIMIT) { cell.note = 'Old: ' + (ch.oldV || '(blank)') + '\nNew: ' + (ch.newV || '(blank)'); notes++; }
+          }
+          widths[vi + off] = Math.min(48, Math.max(widths[vi + off], shown(src).length + 2));
+        });
+      });
+      widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+      if (heads.length) ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: heads.length } };
+    });
+    return wb.xlsx.writeBuffer();
+  }
+  function writePlain(plan, o) {
+    const wb = XLSX.utils.book_new();
+    plan.forEach((s) => {
+      let ws;
+      if (s.type === 'table') {
+        ws = XLSX.utils.aoa_to_sheet(s.aoa);
+        ws['!cols'] = s.widths.map((w) => ({ wch: w }));
+      } else {
+        const R = s.R, off = o.status ? 1 : 0;
+        ws = {};
+        const heads = (o.status ? ['Status'] : []).concat(R.vis.map((c) => c.name));
+        const widths = heads.map((h) => Math.min(48, Math.max(8, h.length + 3)));
+        heads.forEach((h, ci) => { ws[XLSX.utils.encode_cell({ r: 0, c: ci })] = { t: 's', v: h }; });
+        keptRows(R).forEach((r, ri) => {
+          if (o.status) ws[XLSX.utils.encode_cell({ r: ri + 1, c: 0 })] = { t: 's', v: statusLabel(r.status, R.mode) };
+          R.vis.forEach((c, vi) => {
+            const cell = r.cells[c.i];
+            if (isBlank(cell)) return;
+            const x = { t: cell.t, v: cell.v };
+            if (cell.z) x.z = cell.z;
+            ws[XLSX.utils.encode_cell({ r: ri + 1, c: vi + off })] = x;
+            widths[vi + off] = Math.min(48, Math.max(widths[vi + off], shown(cell).length + 2));
+          });
+        });
+        const ref = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: keptRows(R).length, c: Math.max(0, heads.length - 1) } });
+        ws['!ref'] = ref; ws['!autofilter'] = { ref };
+        ws['!cols'] = widths.map((w) => ({ wch: w }));
+      }
+      XLSX.utils.book_append_sheet(wb, ws, s.name);
+    });
+    return XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  }
+
+  /* ---------- download actions ---------- */
+  let exPromise = null;
+  function loadExcelJS() {
+    if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+    if (exPromise) return exPromise;
+    exPromise = new Promise((resolve) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+      s.onload = () => resolve(window.ExcelJS || null);
+      s.onerror = () => resolve(null);
+      document.head.appendChild(s);
+    });
+    return exPromise;
+  }
+  function defaultName() {
+    const n = state.src.new;
+    const base = !n ? 'merged' : (n.sample ? 'example' : n.name.replace(/\.[^.]+$/, ''));
+    return (base + '-merged').replace(/[\\\/:*?"<>|]+/g, '_');
+  }
+  function outName(ext) {
+    let b = $('fname').value.trim().replace(/\.(xlsx|csv|json)$/i, '').replace(/[\\\/:*?"<>|]+/g, '_');
+    if (!b) b = defaultName();
+    return b + '.' + ext;
+  }
+  function fallbackSave(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+  async function saveBlob(blob, name) {
+    try {
+      if (downloads) {
+        const res = await downloads.save({ filename: name, data: blob });
+        setStatus(res && res.status === 'delivered' ? 'Sent ' + name + '.' : 'Saved ' + name + '.');
+      } else {
+        fallbackSave(blob, name);
+        setStatus('Started the download of ' + name + '. If nothing happens, use Copy for Excel.');
+      }
+    } catch (err) {
+      const code = err && err.code;
+      if (code === 'declined') setStatus('Download cancelled.');
+      else if (code === 'rate_limited') setStatus('A save prompt is already open. Answer it, then try again.');
+      else setStatus('The file could not be saved here. Use Copy for Excel instead.');
+    }
+  }
+  async function onXlsx() {
+    if (!state.result) return;
+    const o = state.exp;
+    setStatus('Building the Excel file...');
+    try {
+      const plan = buildPlan(o);
+      let buf;
+      const wantStyle = o.styled;
+      const EX = wantStyle ? await loadExcelJS() : null;
+      if (EX) buf = await writeStyled(plan, o);
+      else {
+        buf = writePlain(plan, o);
+        if (wantStyle) setStatus('Highlighting needs one more library that could not load, so the file is saved without colors.');
+      }
+      await saveBlob(new Blob([buf], { type: XLSX_MIME }), outName('xlsx'));
+      if (wantStyle && !EX) setStatus('Saved without colors because the highlighting library could not load.');
+    } catch (e) {
+      setStatus('Could not build the file: ' + (e && e.message ? e.message : 'unknown error') + '.');
+    }
+  }
+  const csvEsc = (v) => { const s = String(v); return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  function onCsv() {
+    const R = state.result; if (!R) return;
+    const off = state.exp.status;
+    const lines = [(off ? ['Status'] : []).concat(R.vis.map((c) => c.name)).map(csvEsc).join(',')];
+    keptRows(R).forEach((r) => lines.push((off ? [statusLabel(r.status, R.mode)] : []).concat(R.vis.map((c) => rawValue(r.cells[c.i]))).map(csvEsc).join(',')));
+    saveBlob(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }), outName('csv'));
+  }
+  function onJson() {
+    const R = state.result; if (!R) return;
+    const rows = keptRows(R).map((r) => {
+      const o = {};
+      if (state.exp.status) o._status = statusLabel(r.status, R.mode);
+      R.vis.forEach((c) => { const v = rawValue(r.cells[c.i]); o[c.name] = v === '' ? null : v; });
+      return o;
+    });
+    saveBlob(new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json' }), outName('json'));
+  }
+  async function onCopy() {
+    const R = state.result; if (!R) return;
+    const clean = (c) => shown(c).replace(/[\t\r\n]+/g, ' ');
+    const text = [R.vis.map((c) => c.name.replace(/[\t\r\n]+/g, ' ')).join('\t')]
+      .concat(keptRows(R).map((r) => R.vis.map((c) => clean(r.cells[c.i])).join('\t'))).join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      $('tsv').hidden = true;
+      setStatus('Copied ' + keptRows(R).length + ' rows. Paste them into Excel.');
+    } catch (e) {
+      const ta = $('tsv');
+      ta.value = text; ta.hidden = false; ta.focus(); ta.select();
+      setStatus('Copying is blocked here. The text is selected below; copy it yourself.');
+    }
+  }
+
+  /* ---------- loading files ---------- */
+  async function loadFile(side, file, quiet) {
+    if (!file) return;
+    const other = side === 'old' ? 'new' : 'old';
+    state.err[side] = '';
+    try {
+      const src = await readFile(file);
+      if (!src.sheetNames.length) throw new Error('empty');
+      state.src[side] = src;
+      const o = state.src[other];
+      state.sheet[side] = o && src.sheetNames.indexOf(state.sheet[other]) >= 0 ? state.sheet[other] : src.sheetNames[0];
+      state.header[side] = 1;
+      if (o && o.sample) { state.src[other] = null; state.err[other] = ''; renderCard(other); }
+    } catch (e) {
+      state.err[side] = 'Could not read this file. Use .xlsx, .xls or .csv, and remove any password.';
+    }
+    if (!quiet) { setStatus(''); renderCard(side); refreshAll(true); }
+  }
+  async function loadMany(files) {
+    const list = Array.from(files || []).filter(Boolean);
+    if (!list.length) return;
+    if (list.length >= 2) {
+      list.sort((a, b) => a.lastModified - b.lastModified);
+      state.src.old = null; state.src.new = null;
+      await loadFile('old', list[0], true);
+      await loadFile('new', list[list.length - 1], true);
+      setStatus('Used ' + list[0].name + ' as the old copy and ' + list[list.length - 1].name + ' as the new copy.');
+      renderCard('old'); renderCard('new'); refreshAll(true);
+    } else {
+      const side = (!state.src.old || state.src.old.sample) ? 'old' : 'new';
+      await loadFile(side, list[0]);
+    }
+  }
+
+  /* ---------- events ---------- */
+  document.addEventListener('change', (e) => {
+    const t = e.target, side = t.dataset && t.dataset.side;
+    if (t.matches('input[type="file"][data-side]')) { loadFile(side, t.files && t.files[0]); }
+    else if (t.id === 'file-both') { loadMany(t.files); t.value = ''; }
+    else if (t.matches('select[data-sheet]')) { state.sheet[side] = t.value; refreshAll(true); }
+    else if (t.matches('input[data-header]')) {
+      const v = parseInt(t.value, 10);
+      state.header[side] = v >= 1 ? v : 1;
+      if (!(v >= 1)) t.value = 1;
+      refreshAll(true);
+    }
+    else if (t.id === 'conflict') { state.conflict = t.value; saveSettings(); recompute(); }
+    else if (t.id === 'onlyNew') { state.onlyNew = t.value; saveSettings(); recompute(); }
+    else if (t.id === 'onlyOld') { state.onlyOld = t.value; saveSettings(); recompute(); }
+    else if (t.id === 'opt-case' || t.id === 'opt-trim' || t.id === 'opt-zeros') {
+      state.caseI = $('opt-case').checked; state.trimWs = $('opt-trim').checked; state.zeros = $('opt-zeros').checked;
+      state.zerosAuto = false; state.autoNote = '';
+      saveSettings();
+      if (state.O && state.N) { renderKeyArea(); recompute(); }
+    }
+    else if (t.id === 'opt-dedupe') { state.dedupe = t.checked; saveSettings(); recompute(); }
+    else if (t.id === 'sortCol') { state.sortCol = t.value; recompute(); }
+    else if (t.id === 'sortDir') { state.sortDir = t.value; recompute(); }
+    else if (t.id === 'onlyChg') { state.onlyChg = t.checked; renderTable(); }
+    else if (t.dataset && t.dataset.colrule !== undefined) {
+      if (t.value) state.colRules.set(t.dataset.colrule, t.value); else state.colRules.delete(t.dataset.colrule);
+      recompute();
+    }
+    else if (t.dataset && t.dataset.colinc !== undefined) {
+      if (t.checked) state.colExclude.delete(t.dataset.colinc); else state.colExclude.add(t.dataset.colinc);
+      recompute();
+    }
+    else if (t.dataset && t.dataset.keep !== undefined) {
+      const r = state.result && state.result.rows[Number(t.dataset.keep)];
+      if (r) { if (t.checked) state.excluded.delete(r.id); else state.excluded.add(r.id); }
+      recompute();
+    }
+    else if (t.id && t.id.indexOf('x-') === 0) {
+      state.exp[t.id.slice(2)] = t.checked; saveSettings();
+    }
+  });
+  document.addEventListener('input', (e) => {
+    if (e.target.id === 'q') { state.q = e.target.value; state.page = 0; renderTable(); }
+  });
+  function toggleCell(td) {
+    const R = state.result; if (!R) return;
+    const r = R.rows[Number(td.dataset.ri)], key = td.dataset.c;
+    const ci = R.columns.findIndex((c) => c.key === key);
+    const ch = r && r.changed.get(ci);
+    if (!ch) return;
+    state.overrides.set(r.id + '\u0003' + key, ch.took === 'old' ? 'new' : 'old');
+    recompute();
+  }
+  document.addEventListener('click', (e) => {
+    const td = e.target.closest && e.target.closest('td[data-ri]');
+    if (td) { toggleCell(td); return; }
+    const b = e.target.closest && e.target.closest('button');
+    if (!b) return;
+    if (b.id === 'swap') {
+      const s = state.src; state.src = { old: s.new, new: s.old };
+      const sh = state.sheet; state.sheet = { old: sh.new, new: sh.old };
+      const h = state.header; state.header = { old: h.new, new: h.old };
+      const er = state.err; state.err = { old: er.new, new: er.old };
+      renderCard('old'); renderCard('new'); refreshAll(true);
+    } else if (b.id === 'useSample') {
+      loadSample(); renderCard('old'); renderCard('new'); setStatus(''); refreshAll(true);
+    } else if (b.id === 'resetAll') {
+      refreshAll(true); setStatus('Choices reset.');
+    } else if (b.id === 'addBoth') { $('file-both').click(); }
+    else if (b.id === 'theme') { toggleTheme(); }
+    else if (b.id === 'mode-key') {
+      state.mode = 'key'; state.keyNote = '';
+      if (!state.keyCols.length) { state.keyAuto = true; if (state.common.length) autoKey(); }
+      renderKeyArea(); recompute();
+    } else if (b.id === 'mode-pos') { state.mode = 'position'; state.keyNote = ''; renderKeyArea(); recompute(); }
+    else if (b.id === 'mode-stack') { state.mode = 'stack'; state.keyNote = ''; renderKeyArea(); recompute(); }
+    else if (b.dataset.key !== undefined) {
+      const k = b.dataset.key, i = state.keyCols.indexOf(k);
+      if (i >= 0) state.keyCols.splice(i, 1); else state.keyCols.push(k);
+      state.keyAuto = false;
+      b.setAttribute('aria-pressed', String(i < 0));
+      updateKeyHint(); recompute();
+    } else if (b.dataset.view) {
+      state.view = b.dataset.view; state.page = 0;
+      document.querySelectorAll('#tabs .tab').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.view === state.view)));
+      $('onlyChgWrap').hidden = state.view !== 'updated';
+      renderTable();
+    } else if (b.dataset.colmove !== undefined) {
+      const k = b.dataset.colmove, d = Number(b.dataset.dir), i = state.colOrder.indexOf(k), j = i + d;
+      if (i >= 0 && j >= 0 && j < state.colOrder.length) {
+        const t = state.colOrder[i]; state.colOrder[i] = state.colOrder[j]; state.colOrder[j] = t;
+        renderColumns(); renderSortOptions(); recompute();
+      }
+    } else if (b.id === 'clearManual') { state.overrides.clear(); state.excluded.clear(); recompute(); }
+    else if (b.id === 'pg-prev') { state.page--; renderTable(); }
+    else if (b.id === 'pg-next') { state.page++; renderTable(); }
+    else if (b.id === 'dl-xlsx') { onXlsx(); }
+    else if (b.id === 'dl-csv') { onCsv(); }
+    else if (b.id === 'dl-json') { onJson(); }
+    else if (b.id === 'copy') { onCopy(); }
+  });
+  document.addEventListener('keydown', (e) => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('td[data-ri]')) { e.preventDefault(); toggleCell(e.target); }
+  });
+  document.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    const d = e.target.closest && e.target.closest('.drop');
+    document.querySelectorAll('.drop.over').forEach((x) => { if (x !== d) x.classList.remove('over'); });
+    if (d) d.classList.add('over');
+  });
+  document.addEventListener('dragleave', (e) => {
+    const d = e.target.closest && e.target.closest('.drop');
+    if (d && !d.contains(e.relatedTarget)) d.classList.remove('over');
+  });
+  document.addEventListener('drop', (e) => {
+    e.preventDefault();
+    document.querySelectorAll('.drop.over').forEach((x) => x.classList.remove('over'));
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (!files || !files.length) return;
+    const d = e.target.closest && e.target.closest('.drop');
+    if (d && files.length === 1) loadFile(d.dataset.side, files[0]); else loadMany(files);
+  });
+
+  /* ---------- start ---------- */
+  if (typeof XLSX === 'undefined') {
+    setStatus('The spreadsheet library could not load. Check your internet connection and reload the page.');
+    $('card-old').innerHTML = '<p class="err">The spreadsheet library could not load. Check your internet connection and reload the page.</p>';
+    return;
+  }
+  loadSettings();
+  loadSample();
+  syncControls();
+  renderCard('old'); renderCard('new');
+  refreshAll(true);
+  loadExcelJS();
+  (async function () {
+    try { downloads = (window.claude && window.claude.use) ? await window.claude.use('downloads') : null; }
+    catch (e) { downloads = null; }
+  })();
+})();
+</script>
+
+</body>
+</html>

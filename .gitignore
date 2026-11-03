@@ -1,0 +1,166 @@
+# ==============================================================================
+# UtilsHub .gitignore
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Private User Data & Working Assets (Strictly Excluded)
+# ------------------------------------------------------------------------------
+# Ignore all test inputs, resumes, applicant photos, documents, spreadsheets & packages
+/assets/*
+/assets/**
+!/assets/README.md
+
+# Document formats that could contain PII or confidential company data
+*.csv
+*.xlsx
+*.xls
+*.pdf
+*.docx
+*.doc
+*.pptx
+*.ppt
+*.jpeg
+*.jpg
+*.png
+*.webp
+*.bmp
+*.tiff
+*.tif
+
+# Preserve markdown docs
+!*.md
+
+# ------------------------------------------------------------------------------
+# 2. Runtime Data, State, History & Logs
+# ------------------------------------------------------------------------------
+data/
+data/**
+logs/
+logs/**
+*.log
+*.journal
+*.sqlite
+*.sqlite3
+*.db
+settings.json
+journal.json
+journal.jsonl
+history.json
+portable.flag
+
+# ------------------------------------------------------------------------------
+# 3. Legacy Application Local Configs & Private Output Files
+# ------------------------------------------------------------------------------
+legacy/**/config.json
+legacy/**/docpacker_config.json
+legacy/**/omnidocs_config.json
+legacy/extractor_settings.json
+legacy/**/output.txt
+legacy/**/*.log
+
+# ------------------------------------------------------------------------------
+# 4. Secrets, Credentials & Environment Files
+# ------------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.token
+*.secret
+credentials.json
+client_secrets.json
+
+# ------------------------------------------------------------------------------
+# 5. Python Bytecode, Caches & Distribution
+# ------------------------------------------------------------------------------
+__pycache__/
+**/__pycache__/**
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ------------------------------------------------------------------------------
+# 6. Testing & Quality Tooling Caches
+# ------------------------------------------------------------------------------
+.pytest_cache/
+.pytest_cache/**
+.coverage
+.coverage.*
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+htmlcov/
+htmlcov/**
+.mypy_cache/
+.mypy_cache/**
+.ruff_cache/
+.ruff_cache/**
+.tox/
+
+# ------------------------------------------------------------------------------
+# 7. Virtual Environments
+# ------------------------------------------------------------------------------
+venv/
+venv/**
+.venv/
+.venv/**
+env/
+env/**
+ENV/
+ENV/**
+env.bak/
+venv.bak/
+
+# ------------------------------------------------------------------------------
+# 8. IDE & Editor Artifacts
+# ------------------------------------------------------------------------------
+.vscode/
+.vscode/**
+!.vscode/settings.json.example
+!.vscode/tasks.json.example
+!.vscode/launch.json.example
+.idea/
+.idea/**
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# ------------------------------------------------------------------------------
+# 9. Operating System Artifacts
+# ------------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Thumbs.db:encryptable
+desktop.ini
+$RECYCLE.BIN/
+*.tmp
+*.temp
+~$*

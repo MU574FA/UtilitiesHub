@@ -1,0 +1,192 @@
+# !pip install python-docx
+
+import docx
+from docx.shared import Pt, Inches
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+
+def create_element(name):
+    return OxmlElement(name)
+
+def create_attribute(element, name, value):
+    element.set(qn(name), value)
+
+def set_cell_background(cell, fill_color):
+    tcPr = cell._tc.get_or_add_tcPr()
+    shd = create_element('w:shd')
+    create_attribute(shd, 'w:val', 'clear')
+    create_attribute(shd, 'w:color', 'auto')
+    create_attribute(shd, 'w:fill', fill_color)
+    tcPr.append(shd)
+
+def generate_jd_file(filename, title, dept, reports, summary, duties, accountability, reqs, prefs, env):
+    doc = docx.Document()
+
+    # Page Setup (1-inch margins)
+    for section in doc.sections:
+        section.top_margin = Inches(1.0)
+        section.bottom_margin = Inches(1.0)
+        section.left_margin = Inches(1.0)
+        section.right_margin = Inches(1.0)
+
+    # Typography Setup
+    style_normal = doc.styles['Normal']
+    style_normal.font.name = 'Arial'
+    style_normal.font.size = Pt(11)
+
+    # Title Header (Deep Corporate Blue)
+    title_p = doc.add_paragraph()
+    title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title_run = title_p.add_run(title.upper())
+    title_run.bold = True
+    title_run.font.size = Pt(18)
+    title_run.font.color.rgb = docx.shared.RGBColor(31, 78, 121)
+    title_p.paragraph_format.space_after = Pt(24)
+
+    # Metadata Grid Table
+    table = doc.add_table(rows=2, cols=2)
+    table.style = 'Table Grid'
+    table.autofit = False
+
+    metadata = [("Department:", dept), ("Reports to (Supervisor):", reports)]
+    for idx, (label, val) in enumerate(metadata):
+        row = table.rows[idx]
+        cell_lbl, cell_val = row.cells[0], row.cells[1]
+        cell_lbl.width, cell_val.width = Inches(2.5), Inches(4.0)
+
+        p_lbl = cell_lbl.paragraphs[0]
+        p_lbl.add_run(label).bold = True
+        p_lbl.paragraph_format.space_before = Pt(4)
+        p_lbl.paragraph_format.space_after = Pt(4)
+
+        p_val = cell_val.paragraphs[0]
+        p_val.add_run(val)
+        p_val.paragraph_format.space_before = Pt(4)
+        p_val.paragraph_format.space_after = Pt(4)
+
+        set_cell_background(cell_lbl, "F2F2F2")
+
+    doc.add_paragraph().paragraph_format.space_after = Pt(12)
+
+    # Helper to append sections uniformly
+    def add_section(header_text, body_content, is_list=False, sub_list_header=None):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(14)
+        p.paragraph_format.space_after = Pt(6)
+        p.paragraph_format.keep_with_next = True
+        run = p.add_run(header_text)
+        run.bold = True
+        run.font.size = Pt(13)
+        run.font.color.rgb = docx.shared.RGBColor(31, 78, 121)
+
+        if is_list:
+            if sub_list_header:
+                sub_p = doc.add_paragraph()
+                sub_p.add_run(sub_list_header).bold = True
+                sub_p.paragraph_format.space_after = Pt(2)
+            for item in body_content:
+                lp = doc.add_paragraph(style='List Bullet')
+                lp.add_run(item)
+                lp.paragraph_format.space_after = Pt(4)
+        else:
+            bp = doc.add_paragraph(body_content)
+            bp.paragraph_format.space_after = Pt(10)
+
+    # Adding sections
+    add_section("1. Job Description", summary)
+    add_section("2. Key Roles & Responsibilities", duties, is_list=True)
+    add_section("3. Accountability", accountability)
+
+    # Qualifications section
+    p_q = doc.add_paragraph()
+    p_q.paragraph_format.space_before = Pt(14)
+    p_q.paragraph_format.space_after = Pt(6)
+    run_q = p_q.add_run("4. Qualifications & Experience")
+    run_q.bold = True
+    run_q.font.size = Pt(13)
+    run_q.font.color.rgb = docx.shared.RGBColor(31, 78, 121)
+
+    sub_req = doc.add_paragraph()
+    sub_req.add_run("a. Required:").bold = True
+    sub_req.paragraph_format.space_after = Pt(2)
+    for req in reqs:
+        lp = doc.add_paragraph(style='List Bullet')
+        lp.add_run(req)
+        lp.paragraph_format.space_after = Pt(3)
+
+    sub_pref = doc.add_paragraph()
+    sub_pref.add_run("b. Preferred:").bold = True
+    sub_pref.paragraph_format.space_before = Pt(6)
+    sub_pref.paragraph_format.space_after = Pt(2)
+    for pref in prefs:
+        lp = doc.add_paragraph(style='List Bullet')
+        lp.add_run(pref)
+        lp.paragraph_format.space_after = Pt(3)
+
+    add_section("5. Work Environment", env)
+
+    # Visual Separator Line
+    div_p = doc.add_paragraph()
+    div_run = div_p.add_run("__________________________________________________________________")
+    div_run.font.color.rgb = docx.shared.RGBColor(180, 180, 180)
+
+    # Standard Disclaimer Footer
+    disc_p = doc.add_paragraph()
+    disc_p.paragraph_format.space_before = Pt(6)
+    d1 = disc_p.add_run("Note: ")
+    d1.bold = True
+    d1.font.size = Pt(9.5)
+    d1.font.italic = True
+    d2 = disc_p.add_run("This job description is not an exhaustive list of all duties, responsibilities, or qualifications associated with the job. Management reserves the right to assign or reassign duties as required by the business.")
+    d2.font.size = Pt(9.5)
+    d2.font.italic = True
+
+    doc.save(filename)
+
+# Dataset containing all 13 Roles
+job_descriptions_data = [
+    {
+        "filename": "JD_Number_Example.docx",
+        "title": "Job Title",
+        "dept": "Department Name",
+        "reports": "Supervisor",
+        "summary": "Summary of the job",
+        "duties": [
+            "example...1",
+            "example...2",
+            "example...3",
+            "example...4",
+            "etc...",
+        ],
+        "accountability": "example...",
+        "reqs": [
+            "example...1",
+            "example...2",
+            "etc...",
+        ],
+        "prefs": [
+            "example...1",
+            "example...2",
+            "etc...",
+        ],
+        "env": "example..."
+    }
+]
+
+# Run File Creation Generation
+print("Starting file generation process...")
+for jd in job_descriptions_data:
+    generate_jd_file(
+        filename=jd["filename"],
+        title=jd["title"],
+        dept=jd["dept"],
+        reports=jd["reports"],
+        summary=jd["summary"],
+        duties=jd["duties"],
+        accountability=jd["accountability"],
+        reqs=jd["reqs"],
+        prefs=jd["prefs"],
+        env=jd["env"]
+    )
+    print(f"Successfully compiled and saved: {jd['filename']}")

@@ -1,0 +1,49 @@
+{
+  "watch_folder": "C:/CV_Inbox",
+  "output_folder": "C:/CV_Archive",
+  "filename_template": "{name}",
+  "duplicate_policy": "number",
+  "file_action": "move",
+  "extensions": [
+    ".pdf",
+    ".docx",
+    ".doc",
+    ".pptx",
+    ".ppt",
+    ".txt",
+    ".rtf",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".tif",
+    ".tiff",
+    ".bmp",
+    ".webp"
+  ],
+  "autostart_watching": false,
+  "process_existing": false,
+  "auto_confirm": false,
+  "popup_topmost": true,
+  "stable_seconds": 1.5,
+  "keep_history": true,
+  "ocr_enabled": true,
+  "tesseract_cmd": "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
+  "ocr_languages": "eng",
+  "ocr_dpi": 200,
+  "ocr_min_chars": 80,
+  "libreoffice_cmd": "",
+  "builtin_fields": [
+    "name",
+    "email",
+    "phone",
+    "job_title",
+    "company"
+  ],
+  "job_title_keywords": [
+    "engineer",
+    "scientist",
+    "researcher",
+    "technician",
+    "supervisor"
+  ]
+}

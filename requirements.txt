@@ -1,0 +1,11 @@
+pymupdf
+Pillow
+pytesseract
+python-docx
+python-pptx
+openpyxl
+watchdog
+rapidfuzz
+tkinterdnd2
+arabic-reshaper
+python-bidi

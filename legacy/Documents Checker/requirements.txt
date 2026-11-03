@@ -1,0 +1,6 @@
+pymupdf
+pillow
+pytesseract
+tkinterdnd2
+opencv-python-headless
+numpy

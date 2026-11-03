@@ -1,0 +1,9 @@
+# Core
+watchdog>=3.0          # folder watching
+Pillow>=9.1            # image handling / OCR pre-processing
+pytesseract>=0.3.10    # OCR wrapper (needs the Tesseract binary, see README)
+PyMuPDF>=1.23          # PDF text + page rendering
+python-docx>=1.0       # .docx
+python-pptx>=0.6.23    # .pptx
+rapidfuzz>=3.0         # fast similarity matching (optional: falls back to difflib)
+# GUI uses tkinter, which ships with Python (Linux: sudo apt install python3-tk)
