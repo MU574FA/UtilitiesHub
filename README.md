@@ -12,6 +12,9 @@ A modern, offline-first desktop productivity suite built with Python and Tkinter
 - **🧱 Visual Workflows**: Snap together Lego-like functional bricks (*Filter → OCR → Rename → Merge → Move*) with safe dry-run previews and reversible execution.
 - **📊 Sheet Sync & Name Matcher**: Reconcile, fuzzy match, and sync tables between Excel spreadsheets and unstructured document collections.
 - **📸 Screenshot & Data Extractor**: Extract text, MRZ passport codes, dates, phone numbers, and Arabic text via integrated OCR.
+- **🧬 Duplicate Finder**: Finds identical files, documents with the same text and look-alike scans (even turned, re-sized or re-saved). Each match gets a likelihood score; work in **Manual**, **Assisted** (confident matches pre-ticked) or **Auto** mode. Duplicates are *moved* to a review folder, never deleted, and a whole batch is undone in one click.
+- **🧼 Scan Cleaner**: Detects turned, tilted, shadowed and blank pages in images and PDFs and fixes them automatically (turn upright, straighten, trim borders, even out lighting, black & white, drop blank pages) - then lets you fine-tune any page by hand (tilt slider, drag-to-crop, before/after). Originals are never touched.
+- **🏠 Customisable Home**: Drag tools into your own order, hide the ones you do not use and bring them back with one click (Settings > Home & tools, or right-click a tool in the sidebar / on Home).
 - **⚡ Autopilot**: Background folder watcher automation that processes incoming files according to defined rules.
 - **⏪ Journal & Undo**: Full operational journaling allowing one-click rollback of all file renames, copies, and moves.
 

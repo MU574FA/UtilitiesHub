@@ -11,6 +11,7 @@ from pathlib import Path
 from tkinter import filedialog, ttk
 
 from . import APP_NAME, __version__
+from .core import toolorder
 from .core.fileops import Journal
 from .core.jobs import JobRunner, UiBridge
 from .core.render import FileRenderer
@@ -25,12 +26,13 @@ from .ui.settings_ui import SettingsWindow
 from .ui.theme import ThemeManager
 from .ui.widgets import Toast, confirm, info, tip
 
-TOOL_MODULES = ["home", "cv_sorter", "docpacker", "file_picker", "screenshot", "name_matcher", "ocr_match", "passport",
-                "pdf_desk", "sheet_sync", "workflows", "autopilot", "history"]
+TOOL_MODULES = ["home", "cv_sorter", "docpacker", "file_picker", "duplicates", "scan_cleaner", "screenshot",
+                "name_matcher", "ocr_match", "passport", "pdf_desk", "sheet_sync", "workflows", "autopilot", "history"]
 
 STATE_OPTS = [
     Opt("window.geometry", "", "Window geometry", "str"),
     Opt("window.last_tool", "home", "Last tool", "str"),
+    Opt("window.tool_order", [], "Tool order (ids; set it on the Home & tools page)", "list"),
 ]
 
 
@@ -78,6 +80,8 @@ class App:
         self.tools: dict[str, Tool] = {}
         self.current: Tool | None = None
         self._nav_buttons: dict[str, ttk.Button] = {}
+        self._nav_after = None
+        self._alt_keys: list[str] = []
         self.extra_commands: list[Command] = []
         for cls in self.tool_classes:
             try:
@@ -155,9 +159,49 @@ class App:
             self.show_tool(tool_id)
             tool.accept_files(list(paths))
 
+    # ------------------------------------------------------------------ tool order and visibility
+    def sorted_tools(self) -> list[Tool]:
+        """Every tool in the user's order (Home first); hidden ones included."""
+        default = [c.id for c in self.tool_classes if c.id in self.tools]
+        ids = toolorder.ordered_ids(default, self.settings.get("window.tool_order"))
+        return [self.tools[i] for i in ids]
+
     def visible_tools(self) -> list[Tool]:
         hidden = set(self.settings.get("window.hidden_tools") or [])
-        return [t for t in self.tools.values() if t.id not in hidden or t.id == "home"]
+        return [t for t in self.sorted_tools() if t.id not in hidden or t.id == toolorder.PINNED]
+
+    def hidden_tools(self) -> list[Tool]:
+        shown = {t.id for t in self.visible_tools()}
+        return [t for t in self.sorted_tools() if t.id not in shown]
+
+    def tool_order(self) -> list[str]:
+        return [t.id for t in self.sorted_tools()]
+
+    def set_tool_order(self, ids: list[str]) -> None:
+        """Save a new order (an empty list = the default order)."""
+        self.settings.set("window.tool_order", list(ids))
+
+    def set_tool_hidden(self, tool_id: str, hidden: bool = True) -> None:
+        current = self.settings.get("window.hidden_tools") or []
+        self.settings.set("window.hidden_tools", toolorder.set_hidden(current, tool_id, hidden))
+
+    def move_tool(self, tool_id: str, delta: int) -> None:
+        self.set_tool_order(toolorder.move(self.tool_order(), tool_id, delta))
+
+    def show_all_tools(self) -> None:
+        self.settings.set("window.hidden_tools", [])
+
+    def _schedule_nav_refresh(self) -> None:
+        if self._nav_after:
+            self.root.after_cancel(self._nav_after)
+        self._nav_after = self.root.after(60, self._refresh_tool_nav)
+
+    def _refresh_tool_nav(self) -> None:
+        """Order / visibility changed: redraw the buttons only - open tools keep their state."""
+        self._nav_after = None
+        self._populate_nav()
+        self._build_menus()
+        self._bind_tool_keys()
 
     # ------------------------------------------------------------------ shell
     def _build_shell(self) -> None:
@@ -181,27 +225,13 @@ class App:
     def _build_nav(self) -> None:
         for w in self.outer.winfo_children():
             w.destroy()
-        self._nav_buttons.clear()
         tabs = self.settings.get("window.nav_style") == "tabs"
-        compact = self.settings.get_bool("window.sidebar_compact")
+        self.nav = ttk.Frame(self.outer, style="Side.TFrame")
         if tabs:
-            self.nav = ttk.Frame(self.outer, style="Side.TFrame")
             self.nav.pack(side="top", fill="x")
         else:
-            self.nav = ttk.Frame(self.outer, style="Side.TFrame")
             self.nav.pack(side="left", fill="y")
-            ttk.Label(self.nav, text="UTILS HUB" if not compact else "UH", style="SideTitle.TLabel").pack(anchor="w", padx=14, pady=(12, 6))
-        for t in self.visible_tools():
-            text = t.icon if (compact and not tabs) else f"{t.icon}  {t.title}"
-            b = ttk.Button(self.nav, text=text, style="Side.TButton", command=lambda i=t.id: self.show_tool(i), width=3 if compact and not tabs else 0)
-            b.pack(side="left" if tabs else "top", fill=None if tabs else "x")
-            tip(b, t.description or t.title)
-            self._nav_buttons[t.id] = b
-        sb = ttk.Button(self.nav, text="⚙" if compact or tabs else "⚙  Settings", style="Side.TButton", command=self.open_settings)
-        if tabs:
-            sb.pack(side="right")
-        else:
-            sb.pack(side="bottom", fill="x", pady=(0, 6))
+        self._populate_nav()
         self.content = ttk.Frame(self.outer)
         self.content.pack(side="left" if not tabs else "top", fill="both", expand=True)
         for t in self.tools.values():
@@ -212,6 +242,43 @@ class App:
         cur, self.current = self.current, None
         if cur:
             self.show_tool(cur.id)
+
+    def _populate_nav(self) -> None:
+        """(Re)create the sidebar / tab buttons inside self.nav."""
+        for w in self.nav.winfo_children():
+            w.destroy()
+        self._nav_buttons.clear()
+        tabs = self.settings.get("window.nav_style") == "tabs"
+        compact = self.settings.get_bool("window.sidebar_compact")
+        if not tabs:
+            ttk.Label(self.nav, text="UTILS HUB" if not compact else "UH", style="SideTitle.TLabel").pack(anchor="w", padx=14, pady=(12, 6))
+        for t in self.visible_tools():
+            text = t.icon if (compact and not tabs) else f"{t.icon}  {t.title}"
+            b = ttk.Button(self.nav, text=text, style="Side.TButton", command=lambda i=t.id: self.show_tool(i), width=3 if compact and not tabs else 0)
+            b.pack(side="left" if tabs else "top", fill=None if tabs else "x")
+            tip(b, t.description or t.title)
+            b.bind("<Button-3>", lambda e, i=t.id: self._nav_menu(e, i))
+            self._nav_buttons[t.id] = b
+        sb = ttk.Button(self.nav, text="⚙" if compact or tabs else "⚙  Settings", style="Side.TButton", command=self.open_settings)
+        if tabs:
+            sb.pack(side="right")
+        else:
+            sb.pack(side="bottom", fill="x", pady=(0, 6))
+        if self.current and self.current.id in self._nav_buttons:
+            self._nav_buttons[self.current.id].configure(style="SideSel.TButton")
+
+    def _nav_menu(self, event, tool_id: str) -> None:
+        """Right-click a sidebar button: move it or hide it."""
+        m = tk.Menu(self.root, tearoff=False)
+        if tool_id != toolorder.PINNED:
+            m.add_command(label="Move up" if self.settings.get("window.nav_style") != "tabs" else "Move left",
+                          command=lambda: self.move_tool(tool_id, -1))
+            m.add_command(label="Move down" if self.settings.get("window.nav_style") != "tabs" else "Move right",
+                          command=lambda: self.move_tool(tool_id, 1))
+            m.add_command(label="Hide this tool", command=lambda: self.set_tool_hidden(tool_id, True))
+            m.add_separator()
+        m.add_command(label="Customize tools…", command=lambda: self.open_settings("home"))
+        m.tk_popup(event.x_root, event.y_root)
 
     def show_tool(self, tool_id: str) -> None:
         tool = self.tools.get(tool_id)
@@ -262,9 +329,18 @@ class App:
         v.add_command(label="Toggle full screen", accelerator="F11", command=self.toggle_fullscreen)
         m.add_cascade(label="View", menu=v)
         t = tk.Menu(m, tearoff=False)
-        for tool in self.tools.values():
+        for tool in self.visible_tools():
             t.add_command(label=f"{tool.icon}  {tool.title}", command=lambda i=tool.id: self.show_tool(i))
+        hidden = self.hidden_tools()
+        if hidden:
+            sub = tk.Menu(t, tearoff=False)
+            for tool in hidden:
+                sub.add_command(label=f"{tool.icon}  {tool.title}", command=lambda i=tool.id: self.show_tool(i))
+            sub.add_separator()
+            sub.add_command(label="Show all in the sidebar", command=self.show_all_tools)
+            t.add_cascade(label=f"Hidden tools ({len(hidden)})", menu=sub)
         t.add_separator()
+        t.add_command(label="Customize tools…", command=lambda: self.open_settings("home"))
         t.add_command(label="Start all watchers", command=self.start_all_auto)
         t.add_command(label="Stop all watchers", command=self.stop_all_auto)
         m.add_cascade(label="Tools", menu=t)
@@ -279,10 +355,19 @@ class App:
         r.bind_all("<Control-comma>", lambda e: self.open_settings())
         r.bind_all("<Control-q>", lambda e: self.quit())
         r.bind_all("<F11>", lambda e: self.toggle_fullscreen())
-        for n, tool in enumerate(self.visible_tools()[:9], 1):
-            r.bind_all(f"<Alt-Key-{n}>", lambda e, i=tool.id: self.show_tool(i))
+        self._bind_tool_keys()
         for seq in sorted({s for t in self.tools.values() for s in t.keys()}):    # only fire while that tool is shown
             r.bind_all(seq, lambda e, s=seq: self._tool_key(s), add="+")
+
+    def _bind_tool_keys(self) -> None:
+        """Alt+1..9 open the first nine *visible* tools, in the current order."""
+        for seq in self._alt_keys:
+            self.root.unbind_all(seq)
+        self._alt_keys = []
+        for n, tool in enumerate(self.visible_tools()[:9], 1):
+            seq = f"<Alt-Key-{n}>"
+            self.root.bind_all(seq, lambda e, i=tool.id: self.show_tool(i))
+            self._alt_keys.append(seq)
 
     def _tool_key(self, seq: str):
         tool = self.current
@@ -303,8 +388,13 @@ class App:
                 Command("auto.start", "Start all watchers", self.start_all_auto, "Autopilot"),
                 Command("auto.stop", "Stop all watchers", self.stop_all_auto, "Autopilot"),
                 Command("data", "Open data folder", lambda: open_path(data_dir()), "App", "logs files")]
-        for t in self.tools.values():
+        cmds.append(Command("tools.customize", "Customize tools: order, hide, show", lambda: self.open_settings("home"),
+                            "App", "rearrange sidebar home"))
+        for t in self.sorted_tools():
             cmds.append(Command(f"go.{t.id}", f"Go to {t.title}", lambda i=t.id: self.show_tool(i), "Navigate", t.description))
+        for t in self.hidden_tools():
+            cmds.append(Command(f"unhide.{t.id}", f"Show {t.title} in the sidebar", lambda i=t.id: self.set_tool_hidden(i, False),
+                                "App", "unhide"))
             for c in t.commands():
                 cmds.append(Command(c.id, c.title, c.callback, c.group or t.title, c.keywords, c.shortcut))
         for p in self.settings_pages():
@@ -346,9 +436,11 @@ class App:
                 self.status.pack(side="bottom", fill="x", before=self.outer)
             else:
                 self.status.pack_forget()
-        elif key in ("window.nav_style", "window.sidebar_compact", "window.hidden_tools"):
+        elif key in ("window.nav_style", "window.sidebar_compact"):
             self.root.after(50, self._build_nav)
             self.root.after(60, self._build_menus)
+        elif key in ("window.hidden_tools", "window.tool_order"):
+            self._schedule_nav_refresh()
 
     def toggle_fullscreen(self) -> None:
         self.root.attributes("-fullscreen", not bool(self.root.attributes("-fullscreen")))

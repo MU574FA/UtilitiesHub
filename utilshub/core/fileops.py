@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import threading
 import time
@@ -138,10 +139,51 @@ class Journal:
             self._rewrite()
         return msg
 
+    # -- batches: one click moved 50 files, one click should undo 50 files
+    def last_batch(self, tool: str | None = None) -> str:
+        """Batch id of the newest entry that can still be undone ('' if it was not part of a batch)."""
+        e = self.last_undoable(tool)
+        return batch_of(e) if e else ""
+
+    def batch_entries(self, batch: str, tool: str | None = None) -> list[JournalEntry]:
+        return [e for e in self.entries(tool) if batch and batch_of(e) == batch and not e.undone]
+
+    def undo_batch(self, batch: str, tool: str | None = None) -> tuple[int, list[str]]:
+        """Undo every entry of a batch (newest first).  Returns (how many, problems)."""
+        done, problems = 0, []
+        for e in reversed(self.batch_entries(batch, tool)):
+            ok, why = self.can_undo(e)
+            if not ok:
+                problems.append(f"{Path(e.dest).name}: {why}")
+                continue
+            try:
+                self.undo(e)
+                done += 1
+            except OSError as exc:
+                problems.append(f"{Path(e.dest).name}: {exc}")
+        return done, problems
+
     def clear(self) -> None:
         with self._lock:
             self._entries.clear()
             self._rewrite()
+
+
+_BATCH_RX = re.compile(r"^\[#([0-9a-f]{6,12})\]\s*")
+
+
+def new_batch() -> str:
+    return uuid.uuid4().hex[:8]
+
+
+def batch_note(batch: str, text: str = "") -> str:
+    """Journal note that tags an entry as part of a batch: '[#1a2b3c4d] duplicate of x.pdf'."""
+    return f"[#{batch}] {text}".strip()
+
+
+def batch_of(entry: JournalEntry) -> str:
+    m = _BATCH_RX.match(entry.note or "")
+    return m.group(1) if m else ""
 
 
 # --------------------------------------------------------------------------- transfer

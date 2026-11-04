@@ -2,15 +2,23 @@
 from __future__ import annotations
 
 import io
+import threading
 from pathlib import Path
 
 from PIL import Image, ImageOps
+
+# MuPDF is not thread safe: every module that touches PyMuPDF from a worker thread takes this lock.
+FITZ_LOCK = threading.RLock()
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp", ".gif"}
 
 
 def open_rgb(source) -> Image.Image:
-    """Open an image (path or bytes), apply EXIF rotation, release the file handle, return an RGB copy."""
+    """Open an image (path, bytes or an open PIL image), apply EXIF rotation, release the file handle, return an RGB copy."""
+    if isinstance(source, Image.Image):                       # an already open picture (e.g. one TIFF frame)
+        img = ImageOps.exif_transpose(source)
+        img.load()
+        return img.convert("RGB")
     src = io.BytesIO(source) if isinstance(source, (bytes, bytearray)) else source
     with Image.open(src) as im:
         img = ImageOps.exif_transpose(im)
