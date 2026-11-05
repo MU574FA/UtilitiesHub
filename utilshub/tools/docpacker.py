@@ -266,6 +266,15 @@ class DocPacker(Tool):
         self._build_custom()
         self.settings.subscribe("docpacker.custom_fields", lambda k, v: self._build_custom())
 
+        bot = ttk.Frame(parent)
+        bot.pack(side="bottom", fill="x", pady=(6, 0))
+        ttk.Button(bot, text="Build package  (Ctrl+B)", style="Accent.TButton", command=self.build_package).pack(side="right")
+        ttk.Button(bot, text="Report…", command=self.show_report).pack(side="right", padx=6)
+        self.open_btn = ttk.Button(bot, text="Open last package", command=lambda: self.last_output and open_path(self.last_output))
+        self.open_btn.pack(side="right")
+        self.summary = ttk.Label(parent, textvariable=self.status_var, wraplength=1000, justify="left")
+        self.summary.pack(side="bottom", fill="x")
+
         paned = ttk.PanedWindow(parent, orient="horizontal")
         paned.pack(fill="both", expand=True, pady=8)
         left = ttk.Frame(paned)
@@ -303,15 +312,6 @@ class DocPacker(Tool):
         self.viewer.pack(fill="both", expand=True)
         self.viewer.on_rotate = self._rotated
         self.app.theme.on_change(self._repaint_checks)
-
-        self.summary = ttk.Label(parent, textvariable=self.status_var, wraplength=1000, justify="left")
-        self.summary.pack(fill="x")
-        bot = ttk.Frame(parent)
-        bot.pack(fill="x", pady=(6, 0))
-        ttk.Button(bot, text="Build package  (Ctrl+B)", style="Accent.TButton", command=self.build_package).pack(side="right")
-        ttk.Button(bot, text="Report…", command=self.show_report).pack(side="right", padx=6)
-        self.open_btn = ttk.Button(bot, text="Open last package", command=lambda: self.last_output and open_path(self.last_output))
-        self.open_btn.pack(side="right")
 
     def _repaint_checks(self) -> None:
         if self.checks.winfo_exists():
