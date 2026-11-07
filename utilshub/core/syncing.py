@@ -26,6 +26,9 @@ class SyncOptions:
     add_columns: bool = False                              # add columns that exist only in the new file
     status_column: bool = True
     status_name: str = "Sync status"
+    keep_missing: bool = True                              # keep rows that are in old but not in new
+    missing_label: str = "Not in new file"                 # tag written to status column for missing rows
+    tag_missing: bool = True                               # write the missing_label to the status column
 
 
 @dataclass
@@ -122,34 +125,51 @@ def build_plan(old: Table, new: Table, opts: SyncOptions) -> SyncPlan:
 
 def _status_by_old_row(plan: SyncPlan) -> dict[int, str]:
     status: dict[int, str] = {}
+    opts = plan.options
     for c in plan.changes:
         if c.kind == "update" and c.accepted:
             status[c.old_row] = "Updated"
-        elif c.kind == "missing":
-            status.setdefault(c.old_row, "Not in new file")
+        elif c.kind == "missing" and opts.keep_missing and opts.tag_missing:
+            status.setdefault(c.old_row, opts.missing_label)
     return status
+
+
+def _missing_old_rows(plan: SyncPlan) -> set[int]:
+    """Row indices in old.rows that are missing from the new file."""
+    return {c.old_row for c in plan.changes if c.kind == "missing"}
 
 
 def result_rows(plan: SyncPlan) -> tuple[list[str], list[list[Any]]]:
     """The updated table as plain rows (accepted changes only)."""
     o = plan.old
+    opts = plan.options
     headers = o.headers + plan.extra_columns
     rows = [list(r) + [""] * len(plan.extra_columns) for r in o.rows]
+    missing_rows = _missing_old_rows(plan)
+    # Apply accepted cell-level updates
     for c in plan.changes:
         if c.kind != "update" or not c.accepted:
             continue
         j = headers.index(c.column)
         rows[c.old_row][j] = c.new
+    # Drop missing rows when keep_missing is False
+    if not opts.keep_missing:
+        rows = [r for i, r in enumerate(rows) if i not in missing_rows]
+        # Remap indices for the status pass below
+        kept_indices = [i for i in range(len(o.rows)) if i not in missing_rows]
+    else:
+        kept_indices = list(range(len(o.rows)))
+    # Append added rows
     for c in plan.changes:
         if c.kind == "add" and c.accepted:
             nrow = plan.new.rows[c.new_row]
             rows.append([nrow[plan.new.col(h)] if h in plan.new.headers else "" for h in headers])
-    if plan.options.status_column:
+    if opts.status_column:
         status = _status_by_old_row(plan)
-        headers = headers + [plan.options.status_name]
-        for i in range(len(o.rows)):
-            rows[i].append(status.get(i, "Unchanged"))
-        for i in range(len(o.rows), len(rows)):
+        headers = headers + [opts.status_name]
+        for out_i, orig_i in enumerate(kept_indices):
+            rows[out_i].append(status.get(orig_i, "Unchanged"))
+        for i in range(len(kept_indices), len(rows)):
             rows[i].append("Added")
     return headers, rows
 
@@ -196,7 +216,8 @@ def change_log_rows(plan: SyncPlan) -> list[list[Any]]:
         elif c.kind == "add":
             rows.append([c.key, "(all columns)", "Added", "", "", "yes" if c.accepted else "no"])
         else:
-            rows.append([c.key, "", "Not in new file", "", "", "kept"])
+            kept = "kept" if plan.options.keep_missing else "removed"
+            rows.append([c.key, "", plan.options.missing_label, "", "", kept])
     if len(rows) == 1:
         rows.append(["", "", "No changes", "", "", ""])
     return rows

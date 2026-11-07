@@ -7,12 +7,12 @@ from tkinter import filedialog, ttk
 from ..core.schema import Opt
 from ..core.sheets import SheetError, Table, cell_text, load_book, write_csv, write_xlsx
 from ..core.syncing import SyncOptions, SyncPlan, apply_plan, build_plan, change_log_rows, shared_columns
+
 from ..ui.widgets import DataTable, error, info
 from .base import Command, Tool
 from .name_matcher import SheetPicker
 
 KIND = {"update": "Update", "add": "Add row", "missing": "Not in new file"}
-
 
 class SheetSync(Tool):
     id = "sheet_sync"
@@ -29,6 +29,9 @@ class SheetSync(Tool):
             Opt(p + "add_new", True, "Add rows that exist only in the new file", "bool"),
             Opt(p + "skip_blank", True, "Keep the old value when the new cell is empty", "bool"),
             Opt(p + "add_columns", False, "Add columns that exist only in the new file", "bool"),
+            Opt(p + "keep_missing", True, "Keep rows that are not found in the new file", "bool"),
+            Opt(p + "tag_missing", True, "Tag kept-missing rows in the status column", "bool"),
+            Opt(p + "missing_label", "Not in new file", "Status label for missing rows", "str", advanced=True),
             Opt(p + "status_column", True, "Add a 'Sync status' column", "bool"),
             Opt(p + "status_name", "Sync status", "Status column title", "str", advanced=True),
             Opt(p + "old_path", "", "Last old file", "file", advanced=True),
@@ -71,6 +74,8 @@ class SheetSync(Tool):
         flagbox.pack(side="left", padx=8)
         for key, text in (("ignore_case", "Ignore case in keys"), ("add_new", "Add new rows"),
                           ("skip_blank", "Keep old value if new is empty"), ("add_columns", "Add new columns"),
+                          ("keep_missing", "Keep rows missing from new file"),
+                          ("tag_missing", "  ↳ Tag missing rows in status column"),
                           ("status_column", "Status column")):
             v = tk.BooleanVar(value=self.get(key))
             v.trace_add("write", lambda *_a, k=key, vv=v: self.put(k, vv.get()))
@@ -116,8 +121,8 @@ class SheetSync(Tool):
         shared = list(self.cols.get(0, "end"))
         chosen = [shared[i] for i in self.cols.curselection() if shared[i] != self.key.get()]
         f = {k: v.get() for k, v in self.flags.items()}
-        return SyncOptions(key=self.key.get(), columns=chosen, status_name=self.get("status_name"), **f)
-
+        return SyncOptions(key=self.key.get(), columns=chosen, status_name=self.get("status_name"),
+                           missing_label=self.get("missing_label"), **f)
     def preview(self) -> None:
         o, n = self.old.table(), self.new.table()
         if not o or not n:
@@ -140,8 +145,11 @@ class SheetSync(Tool):
                             "old": cell_text(c.old), "new": cell_text(c.new) if c.kind != "add" else "(whole row)"},
                            iid=f"c{i}", tags=(c.kind,) if c.accepted or c.kind == "missing" else ("off",))
         st = plan.stats()
+        opts = plan.options
+        missing_note = (f"{st['missing']} old rows not in the new file "
+                        f"({'kept & tagged' if opts.keep_missing and opts.tag_missing else 'kept' if opts.keep_missing else 'removed'})")
         text = (f"{st['cells']} cells in {st['updated_rows']} rows will change • {st['added']} rows added • "
-                f"{st['missing']} old rows not in the new file (kept)")
+                + missing_note)
         if plan.warnings:
             text += "\n⚠ " + "  ⚠ ".join(plan.warnings[:4])
         self.summary.configure(text=text)
@@ -159,7 +167,8 @@ class SheetSync(Tool):
     def set_all(self, on: bool) -> None:
         if self.plan:
             for c in self.plan.changes:
-                c.accepted = on
+                if c.kind != "missing":
+                    c.accepted = on
             self.fill()
 
     # ------------------------------------------------------------------ output

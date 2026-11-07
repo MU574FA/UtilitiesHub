@@ -41,8 +41,14 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
 @media(min-width:560px){.stats{grid-template-columns:repeat(4,1fr)}}
 .stat{border-radius:8px;padding:10px;background:var(--bg)}
 .stat b{font-size:1.4rem;display:block;line-height:1.1}
-.stat.c{background:var(--chg);color:var(--chg-ink)}.stat.a{background:var(--add);color:var(--add-ink)}
+.stat.c{background:var(--chg);color:var(--chg-ink)}.stat.a{background:var(--add);color:var(--add-ink)}.stat.m{background:var(--bg);color:var(--mute);border:1px solid var(--line)}
+tr.mis td{opacity:.65;font-style:italic}
+.stat.m{background:var(--bg);color:var(--mute);border:1px solid var(--line)}
 .warn{color:var(--warn);font-size:.9rem;margin:6px 0}
+tr.mis td{opacity:.6;font-style:italic}
+.sub-opt{margin-left:28px;margin-top:4px}
+.sub-opt label.f{margin:0 0 2px;font-size:.8rem}
+.sub-opt input[type=text]{width:100%;padding:5px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit;font-size:.85rem}
 .msg{color:var(--warn);margin:8px 0 0;min-height:1.2em}
 .tw{overflow-x:auto;border:1px solid var(--line);border-radius:8px;max-height:340px;overflow-y:auto}
 table{border-collapse:collapse;width:100%;font-size:.85rem}
@@ -91,6 +97,14 @@ td.add{color:var(--add-ink);background:var(--add)}
 <div class="opt"><input type="checkbox" id="skipBlank" checked><span>Keep the old value when the new cell is empty<small>Turn off to let empty cells clear old values.</small></span></div>
 <div class="opt"><input type="checkbox" id="addCols"><span>Add columns that exist only in the new file</span></div>
 <div class="opt"><input type="checkbox" id="status" checked><span>Add a “Sync status” column<small>Marks each row Updated, Added or Unchanged.</small></span></div>
+<div class="opt"><input type="checkbox" id="keepMissing" checked><span><b>Keep rows not found in the new file</b><small>When checked, those rows stay in the output. Uncheck to remove them entirely.</small></span></div>
+<div class="sub-opt" id="missingOpts">
+  <div class="opt"><input type="checkbox" id="tagMissing" checked><span>Tag missing rows in the status column</span></div>
+  <div id="missingLabelWrap" style="margin-top:4px">
+    <label class="f" for="missingLabel">Label for missing rows</label>
+    <input type="text" id="missingLabel" value="Not in new file" style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit;font-size:.85rem">
+  </div>
+</div>
 <button class="go" id="run" style="margin-top:12px">Preview changes</button>
 <div class="msg" id="msg" role="alert"></div>
 </section>
@@ -322,12 +336,14 @@ function run(){
   var k=$("key").value,cols=[].slice.call(document.querySelectorAll(".cc:checked")).map(function(c){return c.value});
   if(!cols.length){$("msg").textContent="Select at least one column to update.";return}
   var skipBlank=$("skipBlank").checked,addNew=$("addNew").checked,addCols=$("addCols").checked,st=$("status").checked;
+  var keepMissing=$("keepMissing").checked,tagMissing=$("tagMissing").checked;
+  var missingLabel=$("missingLabel").value.trim()||"Not in new file";
   var o=S.o,n=S.n;
   var extra=addCols?n.head.filter(function(h){return o.head.indexOf(h)<0}):[];
   var head=o.head.concat(extra);
   var nmap={},nDup=0;
   n.rows.forEach(function(r){var v=nk(r[k]);if(v==="")return;if(nmap[v]){nDup++;return}nmap[v]=r});
-  var out=[],log=[],used={},cnt={upd:0,add:0,same:0,cells:0,missing:0};
+  var out=[],missingOut=[],log=[],used={},cnt={upd:0,add:0,same:0,cells:0,missing:0};
   o.rows.forEach(function(r){
     var row=Object.assign({},r),v=nk(r[k]),m=v!==""?nmap[v]:null,changed=false;
     extra.forEach(function(h){row[h]=""});
@@ -341,8 +357,17 @@ function run(){
       });
       if(changed)cnt.upd++;else cnt.same++;
       row["Sync status"]=changed?"Updated":"Unchanged";
-    }else{cnt.missing++;row["Sync status"]="Not in new file";}
-    out.push(row);
+      out.push(row);
+    }else{
+      cnt.missing++;
+      if(keepMissing){
+        row["Sync status"]=(st&&tagMissing)?missingLabel:"Unchanged";
+        out.push(row);
+        missingOut.push(show(r[k]));
+      }else{
+        log.push({key:show(r[k]),col:"(all columns)",type:"Removed (not in new)",oldv:"",newv:""});
+      }
+    }
   });
   if(addNew){
     n.rows.forEach(function(r){
@@ -352,17 +377,20 @@ function run(){
       log.push({key:show(r[k]),col:"(all columns)",type:"Added",oldv:"",newv:""});
     });
   }
-  S.out={rows:out,head:head,st:st};S.log=log;S.cnt=cnt;
-  var stats=[["Updated rows",cnt.upd,"c"],["New rows added",cnt.add,"a"],["Unchanged",cnt.same,""],["Cells changed",cnt.cells,"c"]];
+  S.out={rows:out,head:head,st:st};S.log=log;S.cnt=cnt;S.missingKeys=missingOut;
+  var stats=[["Updated rows",cnt.upd,"c"],["New rows added",cnt.add,"a"],["Unchanged",cnt.same,""],["Cells changed",cnt.cells,"c"],["Not in new file",cnt.missing,"m"]];
   $("stats").innerHTML=stats.map(function(s){return'<div class="stat '+s[2]+'"><b>'+s[1]+"</b>"+s[0]+"</div>"}).join("");
   var w=[];
-  if(cnt.missing)w.push(cnt.missing+" old row"+(cnt.missing>1?"s are":" is")+" not in the new file. They are kept as they are.");
+  if(cnt.missing&&keepMissing)w.push(cnt.missing+" old row"+(cnt.missing>1?"s are":" is")+" not in the new file. They are kept"+(tagMissing?' and tagged as "'+missingLabel+'".':" as they are."));
+  if(cnt.missing&&!keepMissing)w.push(cnt.missing+" old row"+(cnt.missing>1?"s were":" was")+" not in the new file and have been removed from the output.");
   if(nDup)w.push(nDup+" duplicate key"+(nDup>1?"s":"")+" in the new file ignored (first one used).");
   if(!addNew)w.push("Adding new rows is turned off.");
   $("resWarn").innerHTML=w.map(function(x){return'<p class="warn">'+esc(x)+"</p>"}).join("");
+  var misSet={};missingOut.forEach(function(x){misSet[x]=1});
   var lim=Math.min(log.length,300);
-  $("log").innerHTML=log.length?"<tr><th>"+esc(k)+"</th><th>Column</th><th>Old</th><th>New</th></tr>"+log.slice(0,lim).map(function(l){
-    return"<tr><td>"+esc(l.key)+"</td><td>"+esc(l.col)+"</td>"+(l.type==="Added"?'<td class="add" colspan="2">New row added</td>':'<td class="o">'+esc(l.oldv)+'</td><td class="n">'+esc(l.newv)+"</td>")+"</tr>"}).join(""):"<tr><td>No changes found.</td></tr>";
+  $("log").innerHTML=log.length?"<tr><th>"+esc(k)+"</th><th>Column</th><th>Change</th><th>Old</th><th>New</th></tr>"+log.slice(0,lim).map(function(l){
+    var mis=l.type==="Removed (not in new)";
+    return"<tr"+(mis?' class="mis"':"")+"><td>"+esc(l.key)+"</td><td>"+esc(l.col)+"</td><td>"+esc(l.type)+"</td>"+(l.type==="Added"?'<td class="add" colspan="2">New row added</td>':(mis?'<td colspan="2" style="color:var(--warn)">Row removed</td>':'<td class="o">'+esc(l.oldv)+'</td><td class="n">'+esc(l.newv)+"</td>"))+"</tr>"}).join(""):"<tr><td>No changes found.</td></tr>";
   $("logNote").textContent=log.length>lim?"Showing the first "+lim+" of "+log.length+" changes. The download has all of them.":"";
   $("result").classList.remove("hidden");$("dlMsg").textContent="";
   $("result").scrollIntoView({behavior:"smooth"});
@@ -396,6 +424,7 @@ $("key").onchange=function(){drawCols();checkKey();$("result").classList.add("hi
 $("ci").onchange=checkKey;
 $("all").onclick=function(){document.querySelectorAll(".cc").forEach(function(c){c.checked=true})};
 $("none").onclick=function(){document.querySelectorAll(".cc").forEach(function(c){c.checked=false})};
+$("keepMissing").onchange=function(){$("missingOpts").style.opacity=this.checked?"1":"0.4";$("missingOpts").style.pointerEvents=this.checked?"":"none"};
 $("run").onclick=run;
 $("dl").onclick=function(){save(false)};
 $("dlLog").onclick=function(){save(true)};
