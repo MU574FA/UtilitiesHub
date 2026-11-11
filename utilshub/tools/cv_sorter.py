@@ -29,7 +29,7 @@ from ..core.textutil import parse_ext_list
 from ..core.watcher import FolderWatcher
 from ..ui.dnd import DropZone
 from ..ui.viewer import PageViewer
-from ..ui.widgets import DataTable, FolderEntry, ScrollFrame, Tooltip, confirm, copy_to_clipboard, error, info, style_text
+from ..ui.widgets import DataTable, FolderEntry, ScrollFrame, Tooltip, attach_window_controls, confirm, copy_to_clipboard, error, info, style_text
 from .base import Command, Tool
 
 DEFAULT_EXTS = "pdf, docx, doc, txt, jpg, jpeg, png"
@@ -171,6 +171,7 @@ class ReviewDialog(tk.Toplevel):
         self.geometry("1240x780")
         self.minsize(900, 560)
         self.transient(self.app.root)
+        attach_window_controls(self, title="Review CV / Document")
         self.item: Item | None = None
         self.form: FieldForm | None = None
         pos = tool.get("preview_position") if self.app.settings.get_bool("preview.enabled", True) else "none"

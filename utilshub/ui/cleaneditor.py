@@ -19,7 +19,7 @@ from ..core import scanclean as sc
 from ..core.imaging import fit_within
 from ..core.ocr import detect_skew
 from ..core.scanclean import PageEdit
-from .widgets import Tooltip, error
+from .widgets import Tooltip, attach_window_controls, error
 
 ENHANCE_CHOICES = [(None, "As in settings")] + list(sc.ENHANCE_MODES)
 CROP_CHOICES = [(None, "As in settings"), ("auto", "Automatic"), ("none", "No crop"), ("manual", "Drawn by me")]
@@ -43,6 +43,7 @@ class CleanEditor(tk.Toplevel):
         self.minsize(900, 560)
         self.transient(tool.app.root)
         self.configure(background=self.app.theme.p["bg"])
+        attach_window_controls(self, title="Adjust scan")
         self._build()
         self.bind("<Escape>", lambda e: self.destroy())
         self.bind("<Left>", lambda e: self.goto(self.page - 1))

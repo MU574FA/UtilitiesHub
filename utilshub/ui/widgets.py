@@ -451,7 +451,80 @@ class DataTable(ttk.Frame):
                 csv.writer(fh).writerows(self.to_rows(all_rows=True))
 
 
-# --------------------------------------------------------------------------- dialogs
+# --------------------------------------------------------------------------- window tools / dialogs
+def attach_window_controls(top: tk.Toplevel, bar: tk.Misc | None = None, title: str | None = None,
+                           close_cmd: Callable[[], None] | None = None) -> ttk.Frame:
+    """Add minimize, maximize/restore, and close window tools to a top-level window or custom bar.
+    
+    If `bar` is not provided, a top header bar is created and packed at the top of `top`.
+    """
+    if bar is None:
+        header = ttk.Frame(top, padding=(10, 6, 8, 4))
+        header.pack(side="top", fill="x")
+        title_text = title if title is not None else top.title()
+        if title_text:
+            ttk.Label(header, text=title_text, style="Bold.TLabel").pack(side="left")
+        bar = header
+
+    box = ttk.Frame(bar)
+    box.pack(side="right")
+
+    def _minimize():
+        try:
+            # If transient, tkinter/wm iconify will fail unless untransiented first
+            top.transient("")
+        except Exception:
+            pass
+        top.iconify()
+
+    is_resizable = False
+    try:
+        res = top.resizable()
+        is_resizable = bool(any(res)) if isinstance(res, (tuple, list)) else bool(res)
+    except Exception:
+        is_resizable = True
+
+    max_btn: ttk.Button | None = None
+
+    def _toggle_maximize():
+        nonlocal max_btn
+        try:
+            cur = top.state()
+            if cur == "zoomed":
+                top.state("normal")
+                if max_btn:
+                    max_btn.configure(text="🗖")
+                    Tooltip(max_btn, "Maximize")
+            else:
+                top.state("zoomed")
+                if max_btn:
+                    max_btn.configure(text="🗗")
+                    Tooltip(max_btn, "Restore")
+        except Exception:
+            pass
+
+    def _close():
+        if close_cmd:
+            close_cmd()
+        else:
+            top.destroy()
+
+    btn_min = ttk.Button(box, text="🗕", width=3, style="Tiny.TButton", command=_minimize)
+    btn_min.pack(side="left", padx=1)
+    Tooltip(btn_min, "Minimize")
+
+    if is_resizable:
+        max_btn = ttk.Button(box, text="🗖", width=3, style="Tiny.TButton", command=_toggle_maximize)
+        max_btn.pack(side="left", padx=1)
+        Tooltip(max_btn, "Maximize / Restore")
+
+    btn_close = ttk.Button(box, text="✕", width=3, style="Tiny.TButton", command=_close)
+    btn_close.pack(side="left", padx=1)
+    Tooltip(btn_close, "Close (Esc)")
+
+    return box
+
+
 def confirm(parent: tk.Misc, message: str, title: str = "Please confirm") -> bool:
     return messagebox.askyesno(title, message, parent=parent.winfo_toplevel())
 
@@ -470,6 +543,7 @@ def ask_text(parent: tk.Misc, title: str, prompt: str, initial: str = "", multil
     top.title(title)
     top.transient(parent.winfo_toplevel())
     top.resizable(False, False)
+    attach_window_controls(top, title=title)
     frame = ttk.Frame(top, padding=14)
     frame.pack(fill="both", expand=True)
     ttk.Label(frame, text=prompt, wraplength=420, justify="left").pack(anchor="w", pady=(0, 6))
@@ -514,6 +588,7 @@ def modal(parent: tk.Misc, title: str, width: int = 520, height: int = 0) -> tup
     if app:
         top.configure(background=app.theme.p["bg"])
         top.app = app
+    attach_window_controls(top, title=title)
     frame = ttk.Frame(top, padding=14)
     frame.pack(fill="both", expand=True)
     top.update_idletasks()

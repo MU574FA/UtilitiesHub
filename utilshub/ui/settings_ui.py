@@ -9,7 +9,7 @@ from typing import Any
 from ..core.schema import Opt, Page
 from .editors import EDITORS
 from .records import StringListEditor
-from .widgets import FolderEntry, ScrollFrame, Tooltip, confirm, error, info, style_text
+from .widgets import FolderEntry, ScrollFrame, Tooltip, attach_window_controls, confirm, error, info, style_text
 
 
 class OptionPage(ttk.Frame):
@@ -203,8 +203,9 @@ class SettingsWindow(tk.Toplevel):
         top = ttk.Frame(self, padding=(10, 8))
         top.pack(fill="x")
         ttk.Label(top, text="Settings", style="H2.TLabel").pack(side="left")
+        attach_window_controls(self, top)
         ttk.Checkbutton(top, text="Show advanced options", variable=self.show_advanced,
-                        command=lambda: self.show(self.current, force=True)).pack(side="right")
+                        command=lambda: self.show(self.current, force=True)).pack(side="right", padx=(0, 10))
         self.search = tk.StringVar()
         e = ttk.Entry(top, textvariable=self.search, width=26)
         e.pack(side="right", padx=10)

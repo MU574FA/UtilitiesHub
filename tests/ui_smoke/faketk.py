@@ -18,6 +18,7 @@ unbind tag_configure tag_bind tag_raise create_image create_text create_rectangl
 itemconfigure coords move yview xview yview_moveto xview_moveto yview_scroll xview_scroll config_scrollregion
 tk_popup post unpost wait_window wait_visibility attributes state overrideredirect clipboard_clear clipboard_append
 event_generate option_add resizable winfo_rootx winfo_rooty winfo_x winfo_y winfo_reqwidth winfo_reqheight
+iconify deiconify withdraw
 winfo_screenwidth winfo_screenheight winfo_pointerx winfo_pointery tk_focusNext selection_clear
 add_command add_cascade add_separator add_checkbutton add_radiobutton entryconfigure delete_menu
 heading column set_theme configure_style theme_use map layout element_create lookup tag_add tag_remove

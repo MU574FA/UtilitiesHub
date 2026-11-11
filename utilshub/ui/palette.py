@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
+from .widgets import Tooltip, attach_window_controls
 
 
 class CommandPalette(tk.Toplevel):
@@ -21,6 +22,10 @@ class CommandPalette(tk.Toplevel):
         self.configure(background=app.theme.p["accent"], padx=2, pady=2)
         box = ttk.Frame(self, padding=8)
         box.pack(fill="both", expand=True)
+        top_row = ttk.Frame(box)
+        top_row.pack(fill="x", pady=(0, 6))
+        ttk.Label(top_row, text="Commands (Ctrl+K)", style="Bold.TLabel").pack(side="left")
+        attach_window_controls(self, bar=top_row)
         self.var = tk.StringVar()
         self.entry = ttk.Entry(box, textvariable=self.var, font=(None, 12))
         self.entry.pack(fill="x")
