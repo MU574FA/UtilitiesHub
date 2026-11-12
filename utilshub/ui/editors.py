@@ -6,7 +6,7 @@ from tkinter import ttk
 
 from ..core.doctypes import CHECK_TYPES, Check, DocType
 from ..core.aimode import INHERIT, MODE_CHOICES, MODE_CHOICES_INHERIT
-from ..core.fields import ALL_KINDS, FieldSpec
+from ..core.fields import ALL_KINDS, FieldSpec, map_error
 from ..core.rules import LEVEL_LABELS, MATCH_MODES, RULE_LIBRARY, Rule
 from ..core.templates import FILTERS
 from ..core.textutil import slugify
@@ -35,9 +35,21 @@ def _field_library():
     out.append(("Built-in smart", "Company", FieldSpec("company", "Company", "company").to_dict()))
     out.append(("AI (needs Ollama, Settings > AI)", "Described in plain words",
                 FieldSpec("custom_value", "My value", "ai", ai_mode="ai", ai_hint="describe it here").to_dict()))
+    out.append(("Other", "Mapped from job title (e.g. Interviewer)",
+                FieldSpec("interviewer", "Interviewer", "map", source="job_title", fuzzy=True, multiple=False,
+                          pattern="Muhasan = general worker, labourer").to_dict()))
     out.append(("Other", "Today's date", FieldSpec("date", "Date", "today").to_dict()))
     out.append(("Other", "Manual note (typed)", FieldSpec("notes", "Notes", "manual").to_dict()))
     return out
+
+
+def _map_probe(d: dict) -> str:
+    """Regex that lights up the words a mapped field would react to (for the 'Try it' box)."""
+    import re as _re
+    from ..core.fields import parse_map_rules
+    words = [v[3:] if v.lower().startswith("re:") else _re.escape(v)
+             for _, vs in parse_map_rules(d.get("pattern", "")) for v in vs]
+    return "|".join(words) or "(?!)"
 
 
 @editor("fields")
@@ -48,15 +60,18 @@ def fields_editor(parent, app, value, on_change, height: int = 9):
         Prop("label", "Label", help="Shown in the pop-up and used as the column title"),
         Prop("key", "Placeholder key", help="Used in {placeholders}; leave empty to build it from the label"),
         Prop("kind", "Detector", "choice", kinds),
+        Prop("source", "Read from field (key)", "str", visible_if=lambda d: d.get("kind") == "map",
+             help="Key of the field whose value decides the result, e.g. job_title (default)"),
         Prop("pattern", "Keywords / pattern", "text", rows=4, width=52,
-             visible_if=lambda d: d.get("kind") in rule_kinds,
+             visible_if=lambda d: d.get("kind") in rule_kinds + ("map",),
              help="keywords: list ('Canonical = a, b' allowed) • regex: pattern with an optional (group) • "
-                  "label: label words • builtin: email, phone, url, iban, linkedin, date"),
+                  "label: label words • builtin: email, phone, url, iban, linkedin, date • "
+                  "mapped: one line per result, 'Muhasan = general worker, labourer, re:^gen.*worker' (first match wins)"),
         Prop("level", "Necessity", "level", help="Required: an empty result blocks auto-save and is flagged red. "
              "Recommended: flagged orange. Optional: quiet."),
         Prop("match", "Keyword matching", "choice", list(MATCH_MODES), visible_if=lambda d: d.get("kind") == "keywords"),
-        Prop("fuzzy", "Tolerate typos (fuzzy)", "bool", visible_if=lambda d: d.get("kind") == "keywords"),
-        Prop("ignore_case", "Ignore upper/lower case", "bool", visible_if=lambda d: d.get("kind") in rule_kinds),
+        Prop("fuzzy", "Tolerate typos (fuzzy)", "bool", visible_if=lambda d: d.get("kind") in ("keywords", "map")),
+        Prop("ignore_case", "Ignore upper/lower case", "bool", visible_if=lambda d: d.get("kind") in rule_kinds + ("map",)),
         Prop("multiple", "Keep every match", "bool", visible_if=lambda d: d.get("kind") in rule_kinds),
         Prop("join", "Join several values with", "str", visible_if=lambda d: d.get("kind") in rule_kinds),
         Prop("max_len", "Max length of value", "int", visible_if=lambda d: d.get("kind") == "label"),
@@ -66,11 +81,11 @@ def fields_editor(parent, app, value, on_change, height: int = 9):
         Prop("format", "Date format", "str", visible_if=lambda d: d.get("kind") == "today",
              help="e.g. %d-%b-%Y → 10-Oct-2026"),
         Prop("ai_mode", "AI for this field", "choice", MODE_CHOICES_INHERIT,
-             visible_if=lambda d: d.get("kind") not in ("today", "manual"),
+             visible_if=lambda d: d.get("kind") not in ("today", "manual", "map"),
              help="Needs Settings > AI (Ollama) switched on. 'Use the default' follows Settings > AI > Filling fields. "
                   "Rules only = AI off for this field. Kind 'AI-described' has no rules, so it needs an AI mode."),
         Prop("ai_hint", "Tell the AI what to look for", "text", rows=2, width=52,
-             visible_if=lambda d: d.get("kind") not in ("today", "manual"),
+             visible_if=lambda d: d.get("kind") not in ("today", "manual", "map"),
              help="Plain words, e.g. 'current employer, not past ones' or 'years of experience as a number'."),
         Prop("note", "Note"),
     ]
@@ -80,6 +95,8 @@ def fields_editor(parent, app, value, on_change, height: int = 9):
             return "Give the field a label."
         if d.get("kind") == "ai" and d.get("ai_mode") in ("rules", ""):
             return "An AI-described field needs an AI mode (AI only, or AI first)."
+        if d.get("kind") == "map":
+            return map_error(d.get("pattern", ""))
         if d.get("kind") in rule_kinds:
             return FieldSpec.from_dict(d).rule().error()
         return ""
@@ -90,7 +107,12 @@ def fields_editor(parent, app, value, on_change, height: int = 9):
         return recs
 
     def extra(holder, working, collect, extra_get, vars_):
-        tester = RuleTester(holder, app, lambda: FieldSpec.from_dict(collect()).rule(), height=4)
+        def tester_rule():
+            d = collect()
+            if d.get("kind") == "map":      # tester shows what the mapping would give for the pasted job title
+                return Rule(label=d.get("label", ""), kind="regex", pattern=_map_probe(d))
+            return FieldSpec.from_dict(d).rule()
+        tester = RuleTester(holder, app, tester_rule, height=4)
         tester.pack(fill="both", expand=True)
         for v in vars_.values():
             v.trace_add("write", tester.schedule)

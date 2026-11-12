@@ -15,7 +15,7 @@ from tkinter import filedialog, ttk
 from typing import Callable
 
 from ..core import ocr
-from ..core.fields import ExtractContext, FieldEngine, FieldSpec, default_cv_fields, join_values, parse_specs
+from ..core.fields import ExtractContext, FieldEngine, FieldSpec, default_cv_fields, join_values, map_lookup, parse_specs
 from ..core.fileops import transfer
 from ..core.history import HistoryLog
 from ..core.pdfops import rotate_image_file, rotate_pdf_pages
@@ -72,6 +72,8 @@ class FieldForm(ttk.Frame):
         self.vars: dict[str, tk.StringVar] = {}
         self.boxes: dict[str, ttk.Combobox] = {}
         self.labels: dict[str, ttk.Label] = {}
+        self._auto: dict[str, str] = {}              # mapped field key -> last value filled automatically
+        self._busy = False
         self.columnconfigure(1, weight=1)
         for r, s in enumerate(self.specs):
             mark = " *" if s.level == "required" else ""
@@ -82,11 +84,36 @@ class FieldForm(ttk.Frame):
             box.grid(row=r, column=1, sticky="ew", pady=3)
             var.trace_add("write", lambda *_: self._changed())
             self.vars[s.key], self.boxes[s.key], self.labels[s.key] = var, box, lbl
+            if s.kind == "map":
+                self._auto[s.key] = var.get()
             if s.note:
                 Tooltip(lbl, s.note)
         self._paint()
 
+    def _remap(self) -> None:
+        """Mapped fields (e.g. Interviewer from Job title) follow the source while the user has not typed their own."""
+        if self._busy:
+            return
+        self._busy = True
+        try:
+            thr = min(1.0, max(0.5, self.app.settings.get_int("match.fuzzy_threshold", 80) / 100))
+            for s in self.specs:
+                if s.kind != "map" or s.key not in self.vars:
+                    continue
+                var = self.vars[s.key]
+                if var.get().strip() != self._auto.get(s.key, "").strip():
+                    continue                              # edited by hand: leave it alone
+                src = self.vars.get(s.source or "job_title")
+                if src is None:
+                    continue
+                new = join_values(map_lookup(s, [src.get()], thr), s)
+                self._auto[s.key] = new
+                var.set(new)
+        finally:
+            self._busy = False
+
     def _changed(self) -> None:
+        self._remap()
         self._paint()
         if self.on_change:
             self.on_change()

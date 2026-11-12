@@ -6,6 +6,7 @@ A `FieldSpec` says "look for X and call it <key>".  `kind` picks the detector:
     keywords regex label builtin           rule-based (same engine as DocPacker rules)
     today                                  today's date in `format`
     manual                                 left empty so you type it in
+    map                                    filled from ANOTHER field: "Muhasan = general worker, re:^gen.*labou?rer"
     ai                                     described in plain words (`ai_hint`), filled by the local AI only
 
 Every searched field can also use the local AI (Ollama): `FieldSpec.ai_mode` is inherit | rules | ai | rules_ai |
@@ -37,7 +38,7 @@ log = logging.getLogger(__name__)
 BUILTIN_KINDS = {"name": "Full name", "email": "Email", "phone": "Phone",
                  "job_title": "Job title", "company": "Company"}
 RULE_KINDS = {"keywords": "Keywords", "regex": "Regex", "label": "After label", "builtin": "Detector"}
-OTHER_KINDS = {"today": "Today's date", "manual": "Manual (typed)"}
+OTHER_KINDS = {"today": "Today's date", "manual": "Manual (typed)", "map": "Mapped from another field"}
 AI_KINDS = {"ai": "AI-described (plain words)"}
 ALL_KINDS = {**BUILTIN_KINDS, **RULE_KINDS, **OTHER_KINDS, **AI_KINDS}
 
@@ -64,6 +65,7 @@ class FieldSpec:
     note: str = ""
     ai_mode: str = "inherit"         # inherit | rules | ai | rules_ai | ai_rules  (rules = AI off for this field)
     ai_hint: str = ""                # plain-words description for the AI, e.g. "current employer, not past ones"
+    source: str = ""                 # map: key of the field to read (default job_title)
 
     @classmethod
     def from_dict(cls, data: dict) -> "FieldSpec":
@@ -90,7 +92,7 @@ class FieldSpec:
     @property
     def searched(self) -> bool:
         """False for fields that are filled by the program or the user (no red 'not found')."""
-        return self.kind not in ("today", "manual")
+        return self.kind not in ("today", "manual", "map")
 
 
 @dataclass
@@ -391,6 +393,69 @@ class AiOnlyExtractor(FieldExtractor):
         return []
 
 
+# --------------------------------------------------------------------------- mapped fields
+_SPLIT_PARTS = re.compile(r"\s+[-–—|/:]\s+|\s*[,;()\[\]]\s*")
+_VARIANT_SPLIT = re.compile(r",(?![^{]*\})")        # commas inside {2,3} do not split
+
+
+def parse_map_rules(pattern: str) -> list[tuple[str, list[str]]]:
+    """'Muhasan = general worker, re:^gen.*worker' -> [('Muhasan', ['general worker', 're:^gen.*worker'])].
+    A line without '=' maps the text to itself.  Earlier lines win."""
+    out = []
+    for line in (pattern or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" in line and not line.lower().startswith("re:"):
+            target, _, rest = line.partition("=")
+            target = target.strip()
+            variants = [v.strip() for v in _VARIANT_SPLIT.split(rest) if v.strip()]
+        else:
+            target, variants = line, [line]
+        if target and variants:
+            out.append((target, variants))
+    return out
+
+
+def map_error(pattern: str) -> str:
+    rules = parse_map_rules(pattern)
+    if not rules:
+        return "Write at least one line like:  Muhasan = general worker, labourer"
+    for _, variants in rules:
+        for v in variants:
+            if v.lower().startswith("re:"):
+                try:
+                    re.compile(v[3:])
+                except re.error as exc:
+                    return f"Invalid regex {v!r}: {exc}"
+    return ""
+
+
+def map_lookup(spec: FieldSpec, source_values: list[str], threshold: float = 0.8) -> list[str]:
+    """Value for a `map` field: the first rule whose variants match the source text.
+
+    Each variant is matched as (a) `re:` regex, (b) whole words inside the text, or (c) when spec.fuzzy is on, a
+    similar phrase (typos / OCR errors).  "General Worker - Mechanical Dept" is also checked piece by piece."""
+    raw = [v for v in source_values if v and v.strip()]
+    if not raw:
+        return []
+    pieces = unique([p.strip() for v in raw for p in [v, *_SPLIT_PARTS.split(v)] if p and p.strip()])
+    indexes = [FuzzyIndex(p) for p in pieces]
+    flags = re.I if spec.ignore_case else 0
+    for target, variants in parse_map_rules(spec.pattern):
+        for v in variants:
+            if v.lower().startswith("re:"):
+                try:
+                    rx = re.compile(v[3:], flags)
+                except re.error:
+                    continue
+                if any(rx.search(t) for t in pieces):
+                    return [target]
+            elif any(ix.find(v, threshold, fuzzy=spec.fuzzy) for ix in indexes):
+                return [target]
+    return []
+
+
 def make_extractor(spec: FieldSpec, ctx: ExtractContext) -> FieldExtractor:
     if spec.kind == "ai":
         return AiOnlyExtractor(spec, ctx)
@@ -398,7 +463,7 @@ def make_extractor(spec: FieldSpec, ctx: ExtractContext) -> FieldExtractor:
         return _BUILTIN[spec.kind](spec, ctx)
     if spec.kind == "today":
         return TodayExtractor(spec, ctx)
-    if spec.kind == "manual":
+    if spec.kind in ("manual", "map"):                         # map is filled after the others (see FieldEngine)
         return ManualExtractor(spec, ctx)
     return RuleFieldExtractor(spec, ctx)
 
@@ -571,6 +636,11 @@ class FieldEngine:
             res.sources[key] = out.source if res.values[key] else ""
             if out.conflict:
                 res.conflicts[key] = list(out.conflict)
+        for ex in self.extractors:                                # mapped fields read the finished values
+            if ex.spec.kind == "map":
+                res.values[ex.spec.key] = map_lookup(ex.spec, res.values.get(ex.spec.source or "job_title", []),
+                                                     self.ctx.fuzzy_threshold)
+                res.sources[ex.spec.key] = aimode.RULES
         self.last = res
         return res
 
@@ -599,6 +669,9 @@ def join_values(values: list[str], spec: FieldSpec | None) -> str:
 
 
 # --------------------------------------------------------------------------- defaults
+DEFAULT_INTERVIEWER_MAP = "Muhasan = general worker, labourer, laborer, helper"
+
+
 def default_cv_fields() -> list[dict]:
     return [s.to_dict() for s in [
         FieldSpec("name", "Full name", "name", level="required"),
@@ -606,6 +679,9 @@ def default_cv_fields() -> list[dict]:
         FieldSpec("phone", "Phone", "phone", level="recommended"),
         FieldSpec("job_title", "Job title", "job_title"),
         FieldSpec("company", "Company", "company"),
+        FieldSpec("interviewer", "Interviewer", "map", source="job_title", fuzzy=True, multiple=False,
+                  pattern=DEFAULT_INTERVIEWER_MAP,
+                  note="Filled from the job title. One line per interviewer:  Name = job title, another title, re:regex"),
         FieldSpec("linkedin", "LinkedIn", "builtin", pattern="linkedin", multiple=False, enabled=False),
         FieldSpec("years_of_experience", "Years of experience", "regex",
                   pattern=r"(\d{1,2})\+?\s*(?:years|yrs)", multiple=False),
