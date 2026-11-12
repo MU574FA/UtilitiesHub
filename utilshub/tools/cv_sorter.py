@@ -160,6 +160,8 @@ class Item:
     error: str = ""
     iid: str = ""
     auto: bool = False
+    ai_fields: list[str] = field(default_factory=list)          # labels of fields the AI filled (check them!)
+    conflicts: dict[str, list[str]] = field(default_factory=dict)  # label -> what the other method found (cross-check)
 
 
 # --------------------------------------------------------------------------- review dialog
@@ -469,12 +471,18 @@ class CvSorter(Tool):
         def work(job):
             info_ = read_document(path, cfg, opts)
             engine = FieldEngine(specs, ctx)
-            values = engine.extract(info_.text, path) if info_.text.strip() else {}
-            return info_, engine, values
+            result = engine.extract_detailed(info_.text, path) if info_.text.strip() else None
+            return info_, engine, (result.values if result else {}), result
 
         def done(res):
-            info_, engine, values = res
+            info_, engine, values, result = res
             it = Item(path, info_.text, values, fix=info_.fix or None, error=info_.error)
+            if result is not None:
+                label = {sp.key: sp.label for sp in engine.specs}
+                it.ai_fields = [label.get(k, k) for k in result.ai_keys()]
+                it.conflicts = {label.get(k, k): v for k, v in result.conflicts.items()}
+                for err in result.errors:
+                    self.log(f"{path.name}: AI - {err} (the Rules result was used where possible)", "warn")
             self._ready(it, [s_.label for s_ in engine.missing(values)])
 
         def fail(msg):
@@ -498,6 +506,10 @@ class CvSorter(Tool):
             it.problems.append("no text found")
         if missing:
             it.problems.append("missing: " + ", ".join(missing))
+        if it.ai_fields and self.settings.get_bool("ai.review_filled", True):
+            it.problems.append("AI-filled, please check: " + ", ".join(it.ai_fields))
+        if it.conflicts:
+            it.problems.append("Rules and AI disagree on: " + ", ".join(it.conflicts))
         name = (it.candidates.get("name") or [""])[0]
         if name and self.registry().enabled:
             chk = self.registry().check(name)

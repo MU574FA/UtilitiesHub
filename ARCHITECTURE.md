@@ -32,7 +32,24 @@ looking identical. `core/scanclean.py` (Scan Cleaner): `analyse_image` finds wha
 overrides (None = automatic), `process_page` / `clean_file` fix it. Batches of file operations are tagged with
 `fileops.batch_note()` so `Journal.undo_batch()` can undo them in one go.
 
+## Local AI (Ollama)
+`core/llm.py` is the only code that talks to Ollama (standard library only; `LlmConfig`, `ping`, `ask_text`, `ask_json`,
+`ocr_image`; raises `LlmUnavailable` / `LlmError`, remembers an unreachable server for a few seconds). `core/aitasks.py`
+holds the prompts and checks every answer (allowed ids only, clamped confidence, lists of strings); documents are sent
+between `<document>` tags as data. `core/aimode.py` is the one place that combines the classic way with the AI:
+`mode_for(settings, feature)` (master switch `ai.enabled` wins, then `ai.<feature>_mode`, features listed in
+`FEATURES`) and `run(mode, rules_fn, ai_fn, ...)` for the four modes `rules | ai | rules_ai | ai_rules`, with optional
+cross-check and `AiPending`. Rules-only mode calls the old code path unchanged.
+Integration points: `ocr.ocr_image` (modes via `OcrConfig.ai_mode`), `fields.FieldEngine.extract_detailed` (one model
+call per document for all fields; per-field `FieldSpec.ai_mode`; `grounded` / `accept_ai_value` validate),
+`core/aidocs.py` (DocPacker: `recognise`, `page_labels` / `detect_groups`, `run_ai_check`, name checks, `fill_cover`)
+and the `ai_*` workflow bricks. The UI thread never waits for a model: `aidocs.ai_call` caches answers and, when the
+tool sets `AiContext.background`, computes them in a job and calls `on_ready` so the screen re-checks.
+To add an AI feature: add `ai.<feature>_mode` (+ entry in `aimode.FEATURES`), write the AI function in `aitasks.py`,
+wrap both methods in `aimode.run`, and mark AI-made values (`source == "ai"`) so the UI can ask for review.
+
 ## Tests
+`tests/test_ai.py` (fake Ollama in `tests/fake_ollama.py`) and `tests/ui_smoke/ai_docpacker.py` cover the AI paths offline.
 `tests/test_similarity.py`, `test_scanclean.py`, `test_toolorder.py` need no display. `tests/test_ui_smoke.py` runs
 `tests/ui_smoke/run.py` in a subprocess with a fake tkinter (`faketk.py`, strict about unknown methods) to check what the
 Home, tool manager, Duplicate Finder and Scan Cleaner screens *do*; it cannot judge layout, so still look at them once.

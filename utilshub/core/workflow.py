@@ -203,6 +203,7 @@ class RunEnv:
     out_root: Path = field(default_factory=lambda: Path(tempfile.gettempdir()) / "utilshub_workflows")
     journal: Journal | None = None
     ocr_cfg: Any = None                                # core.ocr.OcrConfig (None = defaults)
+    llm_cfg: Any = None                                # core.llm.LlmConfig (None = the one inside ocr_cfg, else AI off)
     log: Callable[[str, str], None] = lambda message, level="info": None
     cancelled: Callable[[], bool] = lambda: False
     progress: Callable[[int, int, str], None] = lambda done, total, message="": None
@@ -278,6 +279,16 @@ class Flow:
             return self.env.ocr_cfg
         from .ocr import OcrConfig
         return OcrConfig()
+
+    def llm_cfg(self):
+        """The local-AI settings (disabled when the app did not provide any)."""
+        if self.env.llm_cfg is not None:
+            return self.env.llm_cfg
+        inner = getattr(self.ocr_cfg(), "llm", None)
+        if inner is not None:
+            return inner
+        from .llm import LlmConfig
+        return LlmConfig()
 
     def read_text(self, path: Path) -> str:
         key = str(path)
@@ -776,7 +787,9 @@ def b_compress_pdf(flow: Flow, p: Params):
 
 
 # ---------------------------------------------------------------- organise
-_TOKENS_HELP = "Tokens: {name} {ext} {n} {n:3} (001) {date} {parent} {text:20} (first 20 characters of the text)"
+_TOKENS_HELP = (
+    "Tokens: {name} {ext} {n} {n:3} (001) {date} {parent} {text:20} (first 20 characters of the text) "
+    "and any value made by a Grab / AI brick, e.g. {category}")
 
 
 def _expand(pattern: str, f: Path, n: int, flow: Flow) -> str:
@@ -796,6 +809,9 @@ def _expand(pattern: str, f: Path, n: int, flow: Flow) -> str:
         if key == "text":
             txt = re.sub(r"\s+", " ", flow.read_text(f)).strip()
             return txt[:int(arg) if arg and arg.isdigit() else 30]
+        for col, val in flow.rows.get(str(f), {}).items():        # values from Grab / AI bricks: {category} {value} ...
+            if re.sub(r"\W+", "_", str(col)).strip("_").lower() == key and str(val).strip():
+                return str(val)
         return m.group(0)
     return re.sub(r"\{(\w+)(?::(\w+))?\}", sub, pattern)
 
@@ -808,10 +824,15 @@ def _clean_name(s: str) -> str:
        [Param("pattern", "New name (without .ext)", "str", "{name}", required=True, help=_TOKENS_HELP)],
        side_effect=True, summary=lambda p: p.str("pattern"))
 def b_rename(flow: Flow, p: Params):
+    return _rename_all(flow, lambda n, f: _clean_name(_expand(p.str("pattern"), f, n, flow)) or f.stem)
+
+
+def _rename_all(flow: Flow, stem_of) -> str:
+    """Rename every file to `stem_of(n, file)` (+ its extension); previews only say what would happen."""
     out, changed = [], 0
     for n, f in enumerate(flow.files, 1):
         flow.check_cancel()
-        stem = _clean_name(_expand(p.str("pattern"), f, n, flow)) or f.stem
+        stem = stem_of(n, f)
         new_name = stem + f.suffix
         if new_name == f.name:
             out.append(f)
@@ -931,6 +952,158 @@ def b_grab(flow: Flow, p: Params):
         flow.row(f)[p.str("column")] = val.strip()
         found += bool(m)
     return f"found in {found} of {len(flow.files)}"
+
+
+# ---------------------------------------------------------------- AI bricks (local Ollama, see core/aimode.py)
+def _ai_modes():
+    from .aimode import MODE_CHOICES
+    return MODE_CHOICES
+
+
+def _ai_setup(flow: Flow, mode: str) -> tuple[str, Any]:
+    """(effective mode, LlmConfig).  AI off: 'ai' stops with a clear message, the combined modes use the Rules only."""
+    from . import aimode
+    cfg = flow.llm_cfg()
+    mode = aimode.normalise(mode)
+    if mode != aimode.RULES and not cfg.enabled:
+        if mode == aimode.AI:
+            raise ValueError("AI is switched off - turn it on in Settings > AI (Ollama), or choose a mode with Rules.")
+        flow.log("AI is switched off: the Rules are used instead.", "warn")
+        return aimode.RULES, cfg
+    return mode, cfg
+
+
+_MODE_PARAM = Param("mode", "Method", "choice", "ai", [], help="Rules only • AI only • Rules first, AI if they find "
+                    "nothing • AI first, Rules if it finds nothing.  Needs Settings > AI (Ollama) switched on.")
+
+
+def _mode_param(default: str = "ai") -> Param:
+    return Param("mode", _MODE_PARAM.label, "choice", default, _ai_modes(), help=_MODE_PARAM.help)
+
+
+@brick("ai_read", "AI read the text", "read", "✨", "Reads every file with the local vision model (good for photos, "
+       "handwriting and messy scans) so later bricks can use the text. Choose whether AI or Tesseract reads first.",
+       [_mode_param("ai_rules")], summary=lambda p: p.str("mode").replace("_", " → ") or "ai")
+def b_ai_read(flow: Flow, p: Params):
+    from dataclasses import replace
+    from .readers import read_document
+    mode, cfg = _ai_setup(flow, p.str("mode") or "ai_rules")
+    ocr_cfg = replace(flow.ocr_cfg(), ai_mode=mode, llm=cfg)
+    n, empty = len(flow.files), 0
+    for i, f in enumerate(flow.files):
+        flow.check_cancel()
+        flow.env.progress(i, n, f.name)
+        if f in flow.virtual:
+            continue
+        info = read_document(f, ocr_cfg)
+        if info.error:
+            flow.log(f"{f.name}: {info.error}", "warn")
+        flow.texts[str(f)] = info.text or ""
+        empty += not (info.text or "").strip()
+    return f"read {_plural(n)}" + (f", {empty} had no text" if empty else "")
+
+
+@brick("ai_grab", "AI grab a value", "read", "✨", "Asks the AI a question about each file's text (e.g. 'passport number', "
+       "'employer') and remembers the answer for the list. The Rules side is an optional regular expression.",
+       [Param("column", "Name of the value", "str", "Value", required=True),
+        Param("question", "What to find", "str", "", required=True, help="Plain words, e.g.  the candidate's current employer"),
+        Param("pattern", "Rules: regular expression (optional)", "str", "",
+              help="Used by the Rules methods. If it has a (group), the group is taken."),
+        _mode_param("ai")],
+       summary=lambda p: f"{p.str('column')} ← {p.str('question')}")
+def b_ai_grab(flow: Flow, p: Params):
+    from . import aimode, aitasks
+    mode, cfg = _ai_setup(flow, p.str("mode") or "ai")
+    rx = None
+    if p.str("pattern"):
+        try:
+            rx = re.compile(p.str("pattern"), re.I)
+        except re.error as exc:
+            raise ValueError(f"Bad pattern: {exc}") from exc
+    found, by_ai = 0, 0
+    for i, f in enumerate(flow.files):
+        flow.check_cancel()
+        flow.env.progress(i, len(flow.files), f.name)
+        text = flow.read_text(f)
+
+        def rules(text=text) -> str:
+            m = rx.search(text) if rx else None
+            return ((m.group(1) if m.groups() else m.group(0)) if m else "").strip()
+
+        out = aimode.run(mode, rules, lambda text=text, f=f: aitasks.answer_question(cfg, text, p.str("question"), f.name),
+                         empty="")
+        if out.error:
+            flow.log(f"{f.name}: {out.error}", "warn")
+        flow.row(f)[p.str("column")] = out.value or ""
+        found += bool((out.value or "").strip())
+        by_ai += out.from_ai
+    return f"found in {found} of {len(flow.files)}" + (f" ({by_ai} by AI)" if by_ai else "")
+
+
+@brick("ai_classify", "AI sort into categories", "read", "✨", "Decides which category each file belongs to and remembers it "
+       "for the list (and for the {category} rename token). The Rules side is 'Category = word, word' lines.",
+       [Param("column", "Name of the value", "str", "Category", required=True),
+        Param("categories", "Categories (comma separated)", "str", "", required=True,
+              help="e.g.  Invoice, Contract, CV, Passport"),
+        Param("rules", "Rules: keywords per category (optional)", "text", "",
+              help="One line per category:  Invoice = invoice, bill, amount due"),
+        _mode_param("ai")],
+       summary=lambda p: f"{p.str('column')} ∈ {p.str('categories')}")
+def b_ai_classify(flow: Flow, p: Params):
+    from . import aimode, aitasks
+    mode, cfg = _ai_setup(flow, p.str("mode") or "ai")
+    labels = p.words("categories")
+    rule_map: dict[str, list[str]] = {}
+    for line in str(p.get("rules") or "").splitlines():
+        if "=" in line:
+            cat, words = line.split("=", 1)
+            rule_map[cat.strip()] = [w.strip().lower() for w in words.split(",") if w.strip()]
+    done = 0
+    for i, f in enumerate(flow.files):
+        flow.check_cancel()
+        flow.env.progress(i, len(flow.files), f.name)
+        text = flow.read_text(f)
+
+        def rules(text=text) -> str:
+            low = text.lower()
+            for cat, words in rule_map.items():
+                if any(w in low for w in words):
+                    return cat
+            return ""
+
+        out = aimode.run(mode, rules, lambda text=text, f=f: aitasks.classify_into(cfg, text, labels, f.name), empty="")
+        if out.error:
+            flow.log(f"{f.name}: {out.error}", "warn")
+        flow.row(f)[p.str("column")] = out.value or ""
+        done += bool(out.value)
+    return f"{done} of {len(flow.files)} sorted"
+
+
+@brick("ai_rename", "AI rename", "organise", "✨", "Gives each file a new name suggested by the AI from its content. "
+       "The Rules side is a normal name pattern.  " + _TOKENS_HELP,
+       [Param("instruction", "How should the name look?", "str", "document type - person's name", required=True,
+              help="Plain words, e.g.  invoice number and company"),
+        Param("pattern", "Rules: name pattern", "str", "{name}", help=_TOKENS_HELP),
+        _mode_param("ai_rules")],
+       side_effect=True, summary=lambda p: p.str("instruction"))
+def b_ai_rename(flow: Flow, p: Params):
+    from . import aimode, aitasks
+    mode, cfg = _ai_setup(flow, p.str("mode") or "ai_rules")
+
+    def stem_of(n: int, f: Path) -> str:
+        def rules() -> str:
+            return _clean_name(_expand(p.str("pattern") or "{name}", f, n, flow))
+
+        def ask() -> str:
+            return _clean_name(aitasks.suggest_filename(cfg, flow.read_text(f), p.str("instruction"), f.name))
+
+        flow.env.progress(n - 1, len(flow.files), f.name)
+        out = aimode.run(mode, rules, ask, empty="")
+        if out.error:
+            flow.log(f"{f.name}: {out.error}", "warn")
+        return out.value or f.stem
+
+    return _rename_all(flow, stem_of)
 
 
 @brick("to_csv", "Add to a list (CSV)", "read", "📋", "Adds one row per file to a CSV list that Excel opens. Values from 'Grab' bricks become columns.",

@@ -29,6 +29,7 @@ class Capture:
         self.image, self.source = image, source
         self.text = ""
         self.values: dict[str, list[str]] = {}
+        self.ai_fields: list[str] = []                 # labels of fields the AI filled
         self.when = datetime.now()
 
 
@@ -45,6 +46,8 @@ class CapturePopup:
         left.grid(row=0, column=0, sticky="ns", padx=(0, 12))
         self.form = FieldForm(left, self.app, tool.specs(), cap.values)
         self.form.pack(fill="x")
+        self.ai_note = ttk.Label(left, style="Muted.TLabel", wraplength=300, justify="left")
+        self._show_ai_note()
         self.name_ok = ttk.Label(left, style="Muted.TLabel")
         right = ttk.Notebook(body)
         right.grid(row=0, column=1, sticky="nsew")
@@ -100,11 +103,23 @@ class CapturePopup:
         for s in self.form.specs:
             self.form.vars[s.key].set(join_values(self.cap.values.get(s.key, []), s))
             self.form.boxes[s.key].configure(values=self.cap.values.get(s.key, []))
+        self._show_ai_note()
+
+    def _show_ai_note(self) -> None:
+        self.ai_note.configure(text=("✨ Filled by the AI - please check: " + ", ".join(self.cap.ai_fields))
+                               if self.cap.ai_fields else "")
+        if self.cap.ai_fields:
+            self.ai_note.pack(anchor="w", pady=(6, 0))
+        else:
+            self.ai_note.pack_forget()
 
     def rerun(self) -> None:
         self.cap.text = self.text.get("1.0", "end").strip()
-        self.tool.extract_into(self.cap)
-        self._reloaded()
+        # off the UI thread: with AI switched on this can take a few seconds
+        self.app.jobs.submit(lambda job: self.tool.extract_into(self.cap), "Extracting fields", tool=self.tool.id,
+                             on_done=lambda _r: self._reloaded(),
+                             on_error=lambda m: self.tool.log(f"Extraction failed: {m}", "error"),
+                             serial_key=self.tool.id + ".extract")
 
     def copy(self, rec: dict) -> None:
         copy_to_clipboard(self.win, render_clipboard(rec["template"], self.form.fields(), self.cap.source))
@@ -167,7 +182,15 @@ class Screenshot(Tool):
 
     def extract_into(self, cap: Capture) -> None:
         engine = FieldEngine(self.specs(), ExtractContext.from_settings(self.settings))
-        cap.values = engine.extract(cap.text, None) if cap.text.strip() else {}
+        if not cap.text.strip():
+            cap.values, cap.ai_fields = {}, []
+            return
+        result = engine.extract_detailed(cap.text, None)
+        cap.values = result.values
+        label = {sp.key: sp.label for sp in engine.specs}
+        cap.ai_fields = [label.get(k, k) for k in result.ai_keys()]
+        for err in result.errors:
+            self.log(f"AI: {err} (the Rules result was used where possible)", "warn")
 
     def _ocr_job(self, cap: Capture, done) -> None:
         cfg = ocr.OcrConfig.from_settings(self.settings)

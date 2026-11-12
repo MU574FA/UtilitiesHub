@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from ..core.doctypes import CHECK_TYPES, Check, DocType
+from ..core.aimode import INHERIT, MODE_CHOICES, MODE_CHOICES_INHERIT
 from ..core.fields import ALL_KINDS, FieldSpec
 from ..core.rules import LEVEL_LABELS, MATCH_MODES, RULE_LIBRARY, Rule
 from ..core.templates import FILTERS
@@ -32,6 +33,8 @@ def _field_library():
     out.append(("Built-in smart", "Full name", FieldSpec("name", "Full name", "name", level="required").to_dict()))
     out.append(("Built-in smart", "Job title", FieldSpec("job_title", "Job title", "job_title").to_dict()))
     out.append(("Built-in smart", "Company", FieldSpec("company", "Company", "company").to_dict()))
+    out.append(("AI (needs Ollama, Settings > AI)", "Described in plain words",
+                FieldSpec("custom_value", "My value", "ai", ai_mode="ai", ai_hint="describe it here").to_dict()))
     out.append(("Other", "Today's date", FieldSpec("date", "Date", "today").to_dict()))
     out.append(("Other", "Manual note (typed)", FieldSpec("notes", "Notes", "manual").to_dict()))
     return out
@@ -62,12 +65,21 @@ def fields_editor(parent, app, value, on_change, height: int = 9):
         Prop("country_code", "Country code for numbers starting 0", "str", visible_if=lambda d: d.get("kind") == "phone"),
         Prop("format", "Date format", "str", visible_if=lambda d: d.get("kind") == "today",
              help="e.g. %d-%b-%Y → 10-Oct-2026"),
+        Prop("ai_mode", "AI for this field", "choice", MODE_CHOICES_INHERIT,
+             visible_if=lambda d: d.get("kind") not in ("today", "manual"),
+             help="Needs Settings > AI (Ollama) switched on. 'Use the default' follows Settings > AI > Filling fields. "
+                  "Rules only = AI off for this field. Kind 'AI-described' has no rules, so it needs an AI mode."),
+        Prop("ai_hint", "Tell the AI what to look for", "text", rows=2, width=52,
+             visible_if=lambda d: d.get("kind") not in ("today", "manual"),
+             help="Plain words, e.g. 'current employer, not past ones' or 'years of experience as a number'."),
         Prop("note", "Note"),
     ]
 
     def validate(d):
         if not d.get("label", "").strip():
             return "Give the field a label."
+        if d.get("kind") == "ai" and d.get("ai_mode") in ("rules", ""):
+            return "An AI-described field needs an AI mode (AI only, or AI first)."
         if d.get("kind") in rule_kinds:
             return FieldSpec.from_dict(d).rule().error()
         return ""
@@ -85,7 +97,9 @@ def fields_editor(parent, app, value, on_change, height: int = 9):
 
     return RecordEditor(parent, app, [Col("label", "Label", 140), Col("kind", "Detector", 100, lambda r: ALL_KINDS.get(r.get("kind"), "")),
                                       Col("level", "Necessity", 90, lambda r: LEVEL_LABELS.get(r.get("level"), "")),
-                                      Col("pattern", "Pattern / keywords", 240)],
+                                      Col("ai_mode", "AI", 90, lambda r: dict(MODE_CHOICES_INHERIT).get(r.get("ai_mode", INHERIT), "").split(" ")[0]
+                                          if r.get("ai_mode", INHERIT) != INHERIT else "default"),
+                                      Col("pattern", "Pattern / keywords", 220)],
                         props, lambda: FieldSpec(label="", kind="regex").to_dict(), value,
                         (lambda recs: on_change(fill_key(recs))) if on_change else None, library=_field_library(),
                         dialog_extra=extra, validate=validate, noun="field", height=height, dialog_width=600)
@@ -102,6 +116,8 @@ def checks_editor(parent, app, value, on_change, height: int = 7):
         Prop("level", "If it fails", "level", help="Required = failure • Recommended = warning • Optional = information only"),
         Prop("compact", "Ignore spaces in the text", "bool", visible_if=lambda d: d.get("type") in ("regex", "keywords")),
         Prop("ignore_case", "Ignore upper/lower case", "bool", visible_if=lambda d: d.get("type") == "regex"),
+        Prop("use_image", "Let the AI look at the picture of the first page (signatures, stamps, logos)", "bool",
+             visible_if=lambda d: d.get("type") == "ai_question", help="Needs a vision model (Settings > AI)."),
     ]
 
     def extra(holder, working, collect, extra_get, vars_):
@@ -115,6 +131,8 @@ def checks_editor(parent, app, value, on_change, height: int = 7):
         upd()
 
     def validate(d):
+        if d.get("type") == "ai_question" and not d.get("arg", "").strip():
+            return "Write the yes/no question for the AI in the Setting box."
         if d.get("type") == "regex":
             import re
             try:
@@ -140,6 +158,10 @@ def doctypes_editor(parent, app, value, on_change, height: int = 8):
              help="How confident the recognition must be before a file is assigned automatically"),
         Prop("min_signals", "Signals needed", "float", help="Total signal weight that counts as 'fully recognised'"),
         Prop("low_text_bonus", "Photo-like (almost no text) bonus", "bool"),
+        Prop("use_ai", "The AI may assign files to this document type", "bool",
+             help="Only matters when Settings > AI > Recognising documents is not 'Rules only'."),
+        Prop("ai_hint", "Describe it for the AI", "str", width=52,
+             help="e.g. 'Letter from a bank confirming the account number and IBAN'. Empty = use the name and note."),
         Prop("note", "Note"),
     ]
 

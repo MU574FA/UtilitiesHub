@@ -6,6 +6,12 @@ A `FieldSpec` says "look for X and call it <key>".  `kind` picks the detector:
     keywords regex label builtin           rule-based (same engine as DocPacker rules)
     today                                  today's date in `format`
     manual                                 left empty so you type it in
+    ai                                     described in plain words (`ai_hint`), filled by the local AI only
+
+Every searched field can also use the local AI (Ollama): `FieldSpec.ai_mode` is inherit | rules | ai | rules_ai |
+ai_rules (see core/aimode.py) and `ExtractContext.fields_mode` is the default for "inherit".  AI answers are checked
+(email / phone shape, value must really appear in the document) and reported through `FieldEngine.extract_detailed`
+so the UI can mark "AI-filled" values for review.
 
 Add a new built-in: subclass FieldExtractor and decorate with @builtin("kind").
 Everything is data (dataclasses <-> dicts) so the editors and settings file stay trivial.
@@ -20,7 +26,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+from . import aimode, aitasks
 from .fuzzy import FuzzyIndex, KeywordMatcher
+from .llm import LlmConfig, LlmError
 from .rules import (EMAIL_RE, LEVELS, Rule, _detect_email, _detect_phone, evaluate_rule)
 from .textutil import slugify, unique
 
@@ -30,7 +38,8 @@ BUILTIN_KINDS = {"name": "Full name", "email": "Email", "phone": "Phone",
                  "job_title": "Job title", "company": "Company"}
 RULE_KINDS = {"keywords": "Keywords", "regex": "Regex", "label": "After label", "builtin": "Detector"}
 OTHER_KINDS = {"today": "Today's date", "manual": "Manual (typed)"}
-ALL_KINDS = {**BUILTIN_KINDS, **RULE_KINDS, **OTHER_KINDS}
+AI_KINDS = {"ai": "AI-described (plain words)"}
+ALL_KINDS = {**BUILTIN_KINDS, **RULE_KINDS, **OTHER_KINDS, **AI_KINDS}
 
 RESERVED_KEYS = set(BUILTIN_KINDS) | {"date", "time", "original", "filename", "stem", "ext", "year", "month", "day"}
 
@@ -53,11 +62,15 @@ class FieldSpec:
     normalize: str = ""              # phone: "" | digits | intl
     country_code: str = ""           # phone/intl: prefix for numbers that start with 0
     note: str = ""
+    ai_mode: str = "inherit"         # inherit | rules | ai | rules_ai | ai_rules  (rules = AI off for this field)
+    ai_hint: str = ""                # plain-words description for the AI, e.g. "current employer, not past ones"
 
     @classmethod
     def from_dict(cls, data: dict) -> "FieldSpec":
         known = {f.name for f in fields(cls)}
         spec = cls(**{k: v for k, v in (data or {}).items() if k in known})
+        if spec.ai_mode not in aimode.MODES:
+            spec.ai_mode = aimode.INHERIT
         if spec.level not in LEVELS:
             spec.level = "optional"
         if not spec.key:
@@ -91,6 +104,9 @@ class ExtractContext:
     fuzzy_job_titles: bool = False
     company_snap: bool = True
     default_country_code: str = ""
+    llm: LlmConfig | None = None             # local AI (None / disabled = Rules only)
+    fields_mode: str = "rules"               # default AI mode of fields set to "inherit"
+    require_grounding: bool = True           # AI values must really appear in the document
 
     @classmethod
     def from_settings(cls, settings) -> "ExtractContext":
@@ -98,7 +114,9 @@ class ExtractContext:
                    settings.get("match.company_suffixes"), settings.get("match.known_companies"),
                    min(1.0, max(0.5, settings.get_int("match.fuzzy_threshold", 80) / 100)),
                    settings.get_bool("match.fuzzy_job_titles"), settings.get_bool("match.company_snap", True),
-                   settings.get("match.default_country_code", ""))
+                   settings.get("match.default_country_code", ""),
+                   llm=LlmConfig.from_settings(settings), fields_mode=aimode.mode_for(settings, "fields"),
+                   require_grounding=settings.get_bool("ai.require_grounding", True))
 
 
 # --------------------------------------------------------------------------- document wrapper
@@ -366,7 +384,16 @@ class ManualExtractor(FieldExtractor):
         return []
 
 
+class AiOnlyExtractor(FieldExtractor):
+    """Kind 'ai': there are no rules to run - only the AI can fill it (see FieldEngine)."""
+
+    def extract(self, doc: Document) -> list[str]:
+        return []
+
+
 def make_extractor(spec: FieldSpec, ctx: ExtractContext) -> FieldExtractor:
+    if spec.kind == "ai":
+        return AiOnlyExtractor(spec, ctx)
     if spec.kind in _BUILTIN:
         return _BUILTIN[spec.kind](spec, ctx)
     if spec.kind == "today":
@@ -377,26 +404,178 @@ def make_extractor(spec: FieldSpec, ctx: ExtractContext) -> FieldExtractor:
 
 
 # --------------------------------------------------------------------------- orchestration
+# --------------------------------------------------------------------------- AI helpers
+_AI_HINTS = {"name": "the person's own full name", "email": "e-mail address", "phone": "phone number",
+             "job_title": "current or most recent job title", "company": "current or most recent employer"}
+_SINGLE_KINDS = {"name", "job_title", "company"}
+_EMAIL_FULL = re.compile(r"[\w.+'-]+@[\w-]+(?:\.[\w-]+)+")
+
+
+def _squash(text: str) -> str:
+    return re.sub(r"[\W_]+", "", (text or "").lower())
+
+
+def grounded(value: str, text: str) -> bool:
+    """True when `value` really is in the document text (ignoring case, spaces and punctuation; word order free)."""
+    v, t = _squash(value), _squash(text)
+    if not v:
+        return False
+    if v in t:
+        return True
+    tokens = [_squash(x) for x in re.split(r"[\s,;/]+", value) if len(_squash(x)) > 1]
+    return bool(tokens) and all(tok in t for tok in tokens)
+
+
+def ai_hint_for(spec: FieldSpec) -> str:
+    if spec.ai_hint.strip():
+        return spec.ai_hint.strip()
+    if spec.kind in _AI_HINTS:
+        return _AI_HINTS[spec.kind]
+    pattern = " ".join(spec.pattern.split())[:300]
+    if spec.kind == "keywords" and pattern:
+        return f"one or more of: {pattern}"
+    if spec.kind == "label" and pattern:
+        return f"the value written after labels like: {pattern}"
+    if spec.kind == "builtin" and pattern:
+        return pattern
+    return spec.note.strip()
+
+
+def accept_ai_value(spec: FieldSpec, value: str, text: str, require_grounding: bool) -> str:
+    """The cleaned value, or '' when it is not acceptable (wrong shape, not found in the document)."""
+    value = " ".join(value.split())
+    if not value:
+        return ""
+    kind = spec.kind
+    if kind == "email" and not _EMAIL_FULL.fullmatch(value):
+        return ""
+    if kind == "phone" and not 7 <= len(re.sub(r"\D", "", value)) <= 15:
+        return ""
+    if kind == "name" and (len(value) > 60 or "@" in value or any(c.isdigit() for c in value)):
+        return ""
+    if require_grounding and kind != "ai" and spec.searched:
+        probe = re.sub(r"\s*@\s*", "@", value)
+        if not (grounded(value, text) or grounded(probe, re.sub(r"\s*@\s*", "@", text))):
+            return ""
+    return value
+
+
+@dataclass
+class FieldResult:
+    """What one document gave: values plus where each came from, so the UI can mark AI-filled values."""
+    values: dict[str, list[str]] = field(default_factory=dict)
+    sources: dict[str, str] = field(default_factory=dict)         # key -> "rules" | "ai" | ""
+    conflicts: dict[str, list[str]] = field(default_factory=dict)  # key -> what the other method said (cross-check)
+    errors: list[str] = field(default_factory=list)
+
+    def ai_keys(self) -> list[str]:
+        return [k for k, src in self.sources.items() if src == aimode.AI and self.values.get(k)]
+
+
 class FieldEngine:
     """Run an ordered list of FieldSpecs over a text. One bad field never breaks the others."""
 
     def __init__(self, specs: list[FieldSpec], ctx: ExtractContext) -> None:
         self.specs = [s for s in specs if s.enabled and s.key]
+        self.ctx = ctx
         self.extractors = [make_extractor(s, ctx) for s in self.specs]
+        self.last = FieldResult()                       # result of the latest extract() (one engine per job)
+
+    # ---- modes
+    def mode_of(self, spec: FieldSpec) -> str:
+        """Effective mode of one field: Rules unless AI is on, the field is searched and its mode says otherwise."""
+        llm_ = self.ctx.llm
+        if not spec.searched or llm_ is None or not llm_.enabled:
+            return aimode.RULES
+        if spec.ai_mode in aimode.MODES:
+            return spec.ai_mode
+        return aimode.normalise(self.ctx.fields_mode)
+
+    # ---- the two methods
+    def _rules(self, ex: FieldExtractor, doc: Document) -> list[str]:
+        try:
+            values = ex.extract(doc)
+        except Exception:
+            log.exception("Field %s failed", ex.spec.key)
+            return []
+        if not ex.spec.multiple and ex.spec.kind in RULE_KINDS:
+            values = values[:1]
+        return values
+
+    def _ask_ai(self, doc: Document, extractors: list[FieldExtractor], path: Path | None) -> tuple[dict[str, list[str]], str]:
+        """One model call for all fields that need it -> ({key: cleaned values}, error text)."""
+        def several(spec: FieldSpec) -> bool:                    # email / phone / keyword lists may hold many values
+            return spec.kind in ("email", "phone") or (spec.multiple and spec.kind in ("keywords", "regex", "label", "builtin"))
+
+        asks = [aitasks.FieldAsk(ex.spec.key, ex.spec.label or ex.spec.key, ai_hint_for(ex.spec), several(ex.spec))
+                for ex in extractors]
+        try:
+            raw = aitasks.extract_fields(self.ctx.llm, doc.text, asks, path.name if path else "")
+        except LlmError as exc:
+            return {}, str(exc)
+        except Exception as exc:                                  # never let an AI problem break extraction
+            log.warning("AI field extraction failed: %s", exc, exc_info=True)
+            return {}, str(exc)
+        out: dict[str, list[str]] = {}
+        for ex in extractors:
+            vals: list[str] = []
+            for v in raw.get(ex.spec.key, []):
+                v = accept_ai_value(ex.spec, v, doc.text, self.ctx.require_grounding)
+                if v and ex.spec.kind == "phone":
+                    v = normalize_phone(v, ex.spec.normalize, ex.spec.country_code or self.ctx.default_country_code)
+                if v and v not in vals:
+                    vals.append(v)
+            out[ex.spec.key] = vals
+        return out, ""
+
+    # ---- orchestration
+    def extract_detailed(self, text: str, path: Path | None = None) -> FieldResult:
+        doc = Document(text, path)
+        res = FieldResult()
+        cross = bool(self.ctx.llm and self.ctx.llm.cross_check)
+        modes = {ex.spec.key: self.mode_of(ex.spec) if doc.text.strip() else aimode.RULES for ex in self.extractors}
+        rules_cache: dict[str, list[str]] = {}
+
+        def rules(ex: FieldExtractor) -> list[str]:
+            if ex.spec.key not in rules_cache:
+                rules_cache[ex.spec.key] = self._rules(ex, doc)
+            return rules_cache[ex.spec.key]
+
+        need: list[FieldExtractor] = []                           # fields the AI has to look at
+        for ex in self.extractors:
+            mode = modes[ex.spec.key]
+            if mode in (aimode.AI, aimode.AI_RULES) or (mode == aimode.RULES_AI and (cross or not rules(ex))):
+                need.append(ex)
+        ai_vals: dict[str, list[str]] = {}
+        ai_error = ""
+        if need:
+            ai_vals, ai_error = self._ask_ai(doc, need, path)
+            if ai_error:
+                res.errors.append(ai_error)
+
+        def ai_for(key: str):
+            def get() -> list[str]:
+                if ai_error:
+                    raise LlmError(ai_error)
+                return ai_vals.get(key, [])
+            return get
+
+        for ex in self.extractors:
+            key = ex.spec.key
+            mode = modes[key]
+            if mode == aimode.RULES:
+                res.values[key], res.sources[key] = rules(ex), aimode.RULES
+                continue
+            out = aimode.run(mode, lambda ex=ex: rules(ex), ai_for(key), empty=[], cross_check=cross)
+            res.values[key] = list(out.value or [])
+            res.sources[key] = out.source if res.values[key] else ""
+            if out.conflict:
+                res.conflicts[key] = list(out.conflict)
+        self.last = res
+        return res
 
     def extract(self, text: str, path: Path | None = None) -> dict[str, list[str]]:
-        doc = Document(text, path)
-        out: dict[str, list[str]] = {}
-        for ex in self.extractors:
-            try:
-                values = ex.extract(doc)
-            except Exception:
-                log.exception("Field %s failed", ex.spec.key)
-                values = []
-            if not ex.spec.multiple and ex.spec.kind in RULE_KINDS:
-                values = values[:1]
-            out[ex.spec.key] = values
-        return out
+        return self.extract_detailed(text, path).values
 
     def missing(self, values: dict[str, list[str]], levels: tuple[str, ...] = ("required",)) -> list[FieldSpec]:
         """Searched fields of the given necessity levels that came back empty."""

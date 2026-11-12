@@ -1,6 +1,7 @@
 """Shared (non-tool) settings: window, appearance, preview, OCR & converters, matching, automation."""
 from __future__ import annotations
 
+from .core.aimode import MODE_CHOICES
 from .core.schema import Opt, Page
 
 CV_JOB_TITLES = [
@@ -110,6 +111,59 @@ AUTOMATION = [
 ]
 
 
+_PRIV = "Everything runs through Ollama on your own computer - nothing is sent to the internet."
+_MODE_HELP = ("Rules only = the classic way (regex, keywords, Tesseract). AI only = the model decides. "
+              "'Rules first' / 'AI first' = the second method runs only when the first finds nothing or fails.")
+
+AI = [
+    Opt("ai.enabled", False, "Enable AI (local Ollama)", "bool", section="Master switch",
+        help="Off = every feature behaves exactly as before AI existed, whatever the modes below say. " + _PRIV),
+    Opt("ai.host", "http://localhost:11434", "Ollama address", "str", section="Ollama",
+        help="Default for Ollama on this computer. Use 'Test connection' below after changing anything here."),
+    Opt("ai.text_model", "llama3.2", "Text model", "str", section="Ollama",
+        help="Reads text: fields, recognition, questions. e.g. llama3.2, qwen2.5, llama3.1 (ollama pull llama3.2)"),
+    Opt("ai.vision_model", "qwen2.5vl", "Vision model", "str", section="Ollama",
+        help="Reads pictures (AI OCR, signatures and stamps). e.g. qwen2.5vl, llama3.2-vision, minicpm-v"),
+    Opt("ai.timeout", 120, "Wait for an answer at most (seconds)", "int", min=10, max=1800, section="Ollama"),
+    Opt("ai.max_chars", 12000, "Characters of a document sent to the model", "int", min=1000, max=100000, section="Ollama",
+        advanced=True, help="Longer documents are shortened (beginning and end are kept)."),
+    Opt("ai.keep_alive", "5m", "Keep the model in memory for", "str", section="Ollama", advanced=True,
+        help="e.g. 5m, 30m, 0 (unload at once)"),
+    Opt("ai.ocr_mode", "rules", "Reading scans (OCR)", "choice", choices=MODE_CHOICES, section="Where AI is used",
+        help="Rules = Tesseract. Used by every tool that reads scans (CV Sorter, Screenshot, DocPacker, workflows). " + _MODE_HELP),
+    Opt("ai.fields_mode", "rules", "Filling fields (default)", "choice", choices=MODE_CHOICES, section="Where AI is used",
+        help="CV Sorter and Screenshot fields. Each field can override this in its own settings (Detector tab)."),
+    Opt("ai.doctype_mode", "rules", "Recognising documents and splitting files (DocPacker)", "choice", choices=MODE_CHOICES,
+        section="Where AI is used", help="Which document is this file / page? Document types can opt out individually."),
+    Opt("ai.checks_mode", "rules", "'AI question' checks in DocPacker checklists", "choice", choices=MODE_CHOICES,
+        section="Where AI is used",
+        help="Rules only = you tick the question yourself. AI only = the AI answers. AI first = the AI answers, you are "
+             "asked when it is unsure. Rules first = you tick it, the AI's opinion is shown as a hint."),
+    Opt("ai.names_mode", "rules", "Comparing names (DocPacker checks)", "choice", choices=MODE_CHOICES,
+        section="Where AI is used", help="'Name appears in the document' and 'surname matches' checks: AI understands "
+                                        "spelling variants and transliterations. " + _MODE_HELP),
+    Opt("ai.cover_mode", "rules", "Cover-page values (DocPacker)", "choice", choices=MODE_CHOICES,
+        section="Where AI is used", help="Name, surname and custom fields read from the documents. " + _MODE_HELP),
+    Opt("ai.require_grounding", True, "Accept an AI value only if it really appears in the document", "bool",
+        section="Safety", help="Stops the model from inventing names, numbers or e-mail addresses."),
+    Opt("ai.review_filled", True, "Send items with AI-filled values to review (never auto-save them in 'clean only' mode)",
+        "bool", section="Safety"),
+    Opt("ai.cross_check", False, "Cross-check: in the 'then' modes run both methods and flag disagreements", "bool",
+        section="Safety", help="Slower (two answers per item) but shows where Rules and AI disagree."),
+    Opt("ai.min_confidence", 60, "Smallest confidence for an AI document type (%)", "percent", min=0, max=100,
+        section="Safety"),
+    Opt("ai.ocr_min_chars", 15, "'Rules first' OCR: Tesseract text shorter than this counts as 'found nothing'", "int",
+        min=0, max=1000, section="Safety", advanced=True),
+    Opt("ai.max_pages", 30, "Pages of one file the AI looks at when splitting", "int", min=2, max=200, section="Safety",
+        advanced=True),
+]
+
+
+def _ai_builder(parent, app) -> None:
+    from .ui.ai_panel import build_ai_panel
+    build_ai_panel(parent, app)
+
+
 def shared_pages() -> list[Page]:
     return [
         Page("general", "General & window", "⚙", 1, "Window behaviour, startup and notifications.", opts=GENERAL),
@@ -119,6 +173,8 @@ def shared_pages() -> list[Page]:
         Page("match", "Matching & word lists", "🎯", 5, "Fuzzy matching, known names and the word lists the extractors use.",
              opts=MATCH),
         Page("auto", "Automation", "🤖", 6, "Autopilot: watch folders and process files without you.", opts=AUTOMATION),
+        Page("ai", "AI (Ollama)", "✨", 7, "Optional offline AI: read scans, fill fields, recognise documents. "
+             "Choose per feature: Rules only, AI only, or one then the other.", opts=AI, builder=_ai_builder),
     ]
 
 

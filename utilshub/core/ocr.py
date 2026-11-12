@@ -10,6 +10,8 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
+from . import aimode, llm
+
 log = logging.getLogger(__name__)
 
 WINDOWS_TESSERACT = [r"C:\Program Files\Tesseract-OCR\tesseract.exe",
@@ -34,13 +36,23 @@ class OcrConfig:
     deskew: bool = True            # straighten slightly tilted scans
     mrz: bool = True               # second pass for passport MRZ lines
     libreoffice_cmd: str = ""
+    # --- AI (local Ollama) - see core/aimode.py; "rules" = Tesseract only, exactly as before AI existed
+    ai_mode: str = "rules"         # rules | ai | rules_ai | ai_rules
+    ai_min_chars: int = 15         # Tesseract text shorter than this counts as "found nothing" (rules_ai mode)
+    llm: "llm.LlmConfig | None" = None
 
     @classmethod
     def from_settings(cls, s) -> "OcrConfig":
         return cls(s.get_bool("ocr.enabled", True), s.get("ocr.tesseract_cmd", ""), s.get("ocr.languages", "eng"),
                    s.get_int("ocr.dpi", 200), s.get_int("ocr.min_chars", 40), s.get_int("ocr.max_pages", 8),
                    s.get_bool("ocr.autorotate", True), s.get_bool("ocr.deskew", True), s.get_bool("ocr.mrz", True),
-                   s.get("ocr.libreoffice_cmd", ""))
+                   s.get("ocr.libreoffice_cmd", ""),
+                   ai_mode=aimode.mode_for(s, "ocr"), ai_min_chars=max(0, s.get_int("ai.ocr_min_chars", 15)),
+                   llm=llm.LlmConfig.from_settings(s))
+
+    @property
+    def ai_active(self) -> bool:
+        return self.llm is not None and self.llm.enabled and aimode.uses_ai(self.ai_mode)
 
 
 def find_tesseract(cmd: str = "") -> str:
@@ -104,6 +116,8 @@ def validate(cfg: OcrConfig) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     if not cfg.enabled:
         return out
+    if cfg.ai_active and cfg.ai_mode == aimode.AI:      # AI only: Tesseract is not needed for page text
+        return out
     try:
         check_tesseract(cfg)
     except OcrUnavailable as exc:
@@ -127,7 +141,7 @@ def preprocess(image: Image.Image) -> Image.Image:
     return ImageOps.autocontrast(image)
 
 
-def ocr_image(image: Image.Image, cfg: OcrConfig, config: str = "") -> str:
+def _tesseract_image(image: Image.Image, cfg: OcrConfig, config: str = "") -> str:
     engine = _engine(cfg)
     try:
         return engine.image_to_string(preprocess(image), lang=cfg.languages or "eng", config=config)
@@ -135,6 +149,31 @@ def ocr_image(image: Image.Image, cfg: OcrConfig, config: str = "") -> str:
         raise OcrUnavailable("Tesseract executable not found (see Settings > OCR).") from exc
     except engine.TesseractError as exc:
         raise OcrUnavailable(f"Tesseract failed: {exc}") from exc
+
+
+def ai_ocr_image(image: Image.Image, cfg: OcrConfig) -> str:
+    """Read an image with the local vision model (raises llm.LlmError)."""
+    if cfg.llm is None:
+        raise llm.LlmUnavailable("AI is not configured.")
+    return llm.ocr_image(cfg.llm, ImageOps.exif_transpose(image), cfg.languages or "")
+
+
+def ocr_image(image: Image.Image, cfg: OcrConfig, config: str = "") -> str:
+    """Text of an image.  Which engine reads it depends on `cfg.ai_mode` (Tesseract / AI / one then the other).
+
+    A non-empty `config` is a special Tesseract pass (e.g. the MRZ alphabet) and always uses Tesseract.
+    """
+    if config or not cfg.ai_active:
+        return _tesseract_image(image, cfg, config)
+    out = aimode.run(cfg.ai_mode, lambda: _tesseract_image(image, cfg), lambda: ai_ocr_image(image, cfg),
+                     empty="", ok=lambda t: len((t or "").strip()) >= cfg.ai_min_chars)
+    if out.error:
+        log.warning("OCR: %s", out.error)
+    if (out.value or "").strip() or out.source:
+        return out.value or ""
+    if out.exc is not None and isinstance(out.exc, OcrUnavailable):
+        raise out.exc
+    raise OcrUnavailable(out.error or "No OCR engine could read the image.")
 
 
 def safe_ocr(image: Image.Image, cfg: OcrConfig) -> str:

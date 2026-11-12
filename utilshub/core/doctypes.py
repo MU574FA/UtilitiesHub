@@ -5,6 +5,10 @@ A `DocType` describes one document you expect in a package (passport, bank lette
   checks   - things to verify once a file is assigned (each with a necessity level)
 
 Statuses of a check:  ok | fail | warn | info | skip | manual | manual_ok
+Recognition and some checks can use the local AI (core/aidocs.py): `DocType.use_ai` / `ai_hint` feed the AI's
+recognition, the "AI question" check type asks the model a yes/no question, and the name checks honour `ai.names_mode`.
+With AI off everything behaves exactly as before.
+
 A check's *level* decides how a miss is reported:
   required -> fail,  recommended -> warn,  optional -> info  (info never blocks a package)
 """
@@ -38,6 +42,7 @@ class Check:
     enabled: bool = True
     compact: bool = False
     ignore_case: bool = True
+    use_image: bool = False          # AI question: let the model look at the first page's picture (signature, stamp ...)
 
     @classmethod
     def from_dict(cls, data: dict) -> "Check":
@@ -68,6 +73,8 @@ class DocType:
     signals: list[Rule] = field(default_factory=list)
     checks: list[Check] = field(default_factory=list)
     note: str = ""
+    use_ai: bool = True              # may the AI assign files / pages to this type (when AI recognition is on)?
+    ai_hint: str = ""                # plain-words description for the AI, e.g. "letter from a bank confirming an IBAN"
 
     @classmethod
     def from_dict(cls, data: dict) -> "DocType":
@@ -146,6 +153,7 @@ class CheckContext:
     sample_terms: list[str] = field(default_factory=list)
     datecheck: bool = True
     mrz: bool = True
+    ai: Any = None                   # core.aidocs.AiContext (None = Rules only)
 
 
 def same_name(a: str, b: str, fuzzy: bool = True) -> bool:
@@ -222,6 +230,16 @@ def _c_keywords(ch, info, ctx):
             manual=True)
 def _c_manual(ch, info, ctx):
     return "manual", ""
+
+
+@check_type("ai_question", "AI question (yes / no) - local Ollama",
+            "The local AI answers a yes/no question about the document (e.g. 'Is the letter signed and stamped?'). "
+            "Settings > AI > 'AI questions in checklists' decides whether the AI answers, you confirm it yourself, "
+            "or both. Tick 'Let the AI look at the picture' for signatures, stamps and logos (needs a vision model).",
+            "Question", "Is the letter signed and stamped?")
+def _c_ai_question(ch, info, ctx):
+    from .aidocs import run_ai_check
+    return run_ai_check(ch, info, ctx)
 
 
 @check_type("has_text", "Readable text present", "The document must contain readable text (OCR or text layer).",
@@ -334,11 +352,13 @@ def _c_surname_matches(ch, info, ctx):
         return _miss(ch, "surname is empty on the cover form")
     if not sn:
         return "warn", "could not read surname from passport"
-    if not same_name(sn, want, ctx.fuzzy_name):
-        return _miss(ch, f"passport says '{sn}', form says '{want}'")
+    from .aidocs import names_same
+    same, why = names_same(ctx, sn, want, lambda: same_name(sn, want, ctx.fuzzy_name))
+    if not same:
+        return _miss(ch, f"passport says '{sn}', form says '{want}'" + (f" ({why})" if why else ""))
     if ctx.name.strip() and norm_ascii(want) not in norm_ascii(ctx.name):
         return "warn", "surname is not part of the full name field"
-    return "ok", f"{sn} matches"
+    return "ok", f"{sn} matches" + (f" ({why})" if why else "")
 
 
 @check_type("surname_in_text", "Surname appears in the document", "")
@@ -346,18 +366,20 @@ def _c_surname_in(ch, info, ctx):
     want = ctx.surname.strip()
     if not want:
         return _miss(ch, "surname is empty on the cover form")
-    r = name_in_text(want, info.text, ctx.fuzzy_name)
-    if r is None:
+    if name_in_text(want, "x", ctx.fuzzy_name) is None:
         return "skip", "surname too short to check"
-    return ("ok", "") if r else _miss(ch, f"'{want}' not found in document")
+    from .aidocs import name_in_text_check
+    return name_in_text_check(ch, ctx, info, want, "surname", lambda: name_in_text(want, info.text, ctx.fuzzy_name),
+                              f"'{want}' not found in document")
 
 
 @check_type("name_in_text", "Full name appears in the document", "")
 def _c_name_in(ch, info, ctx):
-    r = name_in_text(ctx.name, info.text, ctx.fuzzy_name)
-    if r is None:
+    if name_in_text(ctx.name, "x", ctx.fuzzy_name) is None:
         return "skip", "enter full name first"
-    return ("ok", "") if r else _miss(ch, "name not found in document")
+    from .aidocs import name_in_text_check
+    return name_in_text_check(ch, ctx, info, ctx.name, "name", lambda: name_in_text(ctx.name, info.text, ctx.fuzzy_name),
+                              "name not found in document")
 
 
 @check_type("no_sample_terms", "Sample data NOT used", "Fails if any 'sample term' (Settings) appears.")

@@ -9,10 +9,13 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from tkinter import filedialog, ttk
 
-from ..core import arabic, ocr
+from ..core import aidocs, arabic, ocr
+from ..core.aidocs import AiContext, detect_groups  # noqa: F401  (detect_groups is re-exported here)
+from ..core.aitasks import FieldAsk
 from ..core.dates import parse_any_date
 from ..core.doctypes import CheckContext, DocType, default_doctypes, run_check, score_doctype
 from ..core.fileops import resolve_target
+from ..core.mrz import extract_surname, looks_like_passport
 from ..core.pdfops import COMPRESSION_LEVELS, AssembleOptions, Piece, assemble, fitz
 from ..core.readers import DocInfo, ReadOptions, read_document, supported_extensions
 from ..core.schema import Opt
@@ -44,6 +47,10 @@ class Entry:
     busy: bool = True
     key: str = ""                                       # table id; parts of a split file share `path` but not `key`
     full: DocInfo | None = None                         # the whole file's info while it is split into parts
+    src: str = ""                                       # who recognised it: "rules" | "ai" | "" (by hand / not recognised)
+    reason: str = ""                                    # the AI's short reason
+    pending: bool = False                               # an AI answer for this file is still on its way
+    conflict: str = ""                                  # cross-check: the type the other method chose
 
     def __post_init__(self) -> None:
         self.key = self.key or self.path
@@ -83,32 +90,6 @@ def page_info(info: DocInfo, pages: list[int]) -> DocInfo:
     texts = pick(info.page_texts)
     return replace(info, text="\n".join(texts) if info.page_texts else info.text, pages=len(pages), page_texts=texts,
                    page_meta=pick(info.page_meta), page_rot=pick(info.page_rot), hash="")
-
-
-def detect_groups(types: list[DocType], info: DocInfo, threshold: float = 0.8) -> list[tuple[str, list[int]]]:
-    """Recognise every page on its own and join neighbours of one type: [(type id, pages)].
-
-    A page nobody recognises continues the previous document.  [] when the file is only one document.
-    """
-    if info.error or len(info.page_texts) < 2:
-        return []
-    labels: list[str] = []
-    for i in range(len(info.page_texts)):
-        one = page_info(info, [i])
-        best, best_score = UNASSIGNED, 0.0
-        for t in types:
-            if t.enabled:
-                s = score_doctype(t, one, "", threshold)
-                if s >= t.min_score and s > best_score:
-                    best, best_score = t.id, s
-        labels.append(best or (labels[-1] if labels else UNASSIGNED))
-    groups: list[tuple[str, list[int]]] = []
-    for i, label in enumerate(labels):
-        if groups and groups[-1][0] == label:
-            groups[-1][1].append(i)
-        else:
-            groups.append((label, [i]))
-    return groups if len({g[0] for g in groups}) > 1 else []
 
 
 def compress_at_least(path: str, level: int, target_bytes: int = 0) -> int:
@@ -234,6 +215,12 @@ class DocPacker(Tool):
             Opt("docpacker.cover_checklist", True, "Show the checklist of documents", "bool", section="Cover page"),
             Opt("docpacker.cover_page_refs", True, "Show the page number of each document", "bool", section="Cover page"),
             Opt("docpacker.cover_missing", True, "Show missing required documents", "bool", section="Cover page"),
+            Opt("docpacker.ai_autofill", True, "After reading the files, fill empty cover boxes (name, surname, custom "
+                "fields) with the AI", "bool", section="AI (Settings > AI turns it on and sets the modes)",
+                help="Only when AI is switched on and 'Cover-page values' is not 'Rules only'. Never overwrites what you typed; "
+                     "values the AI filled are listed so you can check them, and you are asked again before building."),
+            Opt("docpacker.ai_confirm_build", True, "Ask me to check AI-recognised documents and AI-filled values before "
+                "building the package", "bool", section="AI (Settings > AI turns it on and sets the modes)"),
             *cls.append_opts(auto=True),
         ]
 
@@ -245,6 +232,10 @@ class DocPacker(Tool):
         self.settings.subscribe("docpacker.doctypes", lambda k, v: self._types_changed())
         self.name_var, self.surname_var, self.join_var = tk.StringVar(), tk.StringVar(), tk.StringVar()
         self.status_var = tk.StringVar(value="Add the person's files (drop them anywhere in the window).")
+        self.ai_note_var = tk.StringVar(value="")
+        self.ai_filled: dict[str, str] = {}                     # cover box key -> value the AI put there (until you edit it)
+        self._ai_after = None
+        self._ai_warned: set = set()
         self.last_output = ""
 
         top = ttk.Frame(parent)
@@ -259,6 +250,7 @@ class DocPacker(Tool):
         ttk.Button(top, text="Add folder…", command=self.pick_folder).pack(side="right", padx=2)
         ttk.Button(top, text="Clear", command=self.clear).pack(side="right", padx=2)
         ttk.Button(top, text="Re-check", command=self.recheck).pack(side="right", padx=2)
+        ttk.Button(top, text="✨ Fill from documents", command=self.autofill_cover).pack(side="right", padx=2)
 
         self.custom_vars: dict[str, tk.StringVar] = {}
         self.custom_host = ttk.Frame(parent)
@@ -274,6 +266,9 @@ class DocPacker(Tool):
         self.open_btn.pack(side="right")
         self.summary = ttk.Label(parent, textvariable=self.status_var, wraplength=1000, justify="left")
         self.summary.pack(side="bottom", fill="x")
+        ttk.Label(parent, textvariable=self.ai_note_var, style="Muted.TLabel", wraplength=1000,
+                  justify="left").pack(side="bottom", fill="x")
+        self.settings.subscribe("ai.", lambda k, v: self._ai_settings_changed())
 
         paned = ttk.PanedWindow(parent, orient="horizontal")
         paned.pack(fill="both", expand=True, pady=8)
@@ -338,6 +333,7 @@ class DocPacker(Tool):
             e.pack(side="left", padx=(0, 12))
             Tooltip(e, f"Placeholder: {{{key}}}")
             self.custom_vars[label] = var
+            var.trace_add("write", lambda *_: self._ai_prune())
         if keys:
             ttk.Button(self.custom_host, text="Fields…", style="Tiny.TButton",
                        command=lambda: self.app.open_settings(self.id)).pack(side="right")
@@ -376,12 +372,138 @@ class DocPacker(Tool):
         joining = parse_any_date(self.join_var.get()) if self.join_var.get().strip() else None
         return CheckContext(name=name, surname=surname, joining=joining, fuzzy_name=self.get("fuzzy_names"),
                             sample_terms=list(self.get("sample_terms") or []), datecheck=self.get("date_checks"),
-                            mrz=self.settings.get_bool("ocr.mrz", True))
+                            mrz=self.settings.get_bool("ocr.mrz", True), ai=self.ai_ctx())
+
+    # ------------------------------------------------------------------ AI plumbing
+    def ai_ctx(self) -> AiContext:
+        """Current AI settings + the hooks that let AI answers arrive in the background (UI stays responsive)."""
+        ctx = AiContext.from_settings(self.settings)
+        ctx.background = self._ai_background
+        ctx.on_ready = self._ai_ready
+        return ctx
+
+    def _ai_background(self, work, done) -> None:
+        self.app.jobs.submit(lambda job: work(), "AI is checking a document", tool=self.id,
+                             on_done=lambda _r: done(), on_error=lambda _m: done(), serial_key="docpacker.ai")
+
+    def _ai_ready(self) -> None:
+        """An AI answer arrived: re-check everything once (answers are cached, so this is cheap)."""
+        if not self.built:
+            return
+        if self._ai_after:
+            self.frame.after_cancel(self._ai_after)
+        self._ai_after = self.frame.after(250, lambda: self.recheck(reassign=True))
+
+    def _ai_settings_changed(self) -> None:
+        aidocs.clear_cache()
+        if self.built and self.entries:
+            self._ai_ready()
 
     def _ctx_changed(self) -> None:
+        self._ai_prune()
         if getattr(self, "_after", None):
             self.frame.after_cancel(self._after)
         self._after = self.frame.after(500, lambda: self.recheck())
+
+    # ------------------------------------------------------------------ AI-filled cover boxes
+    @staticmethod
+    def _folder_name_guess(first_file: str) -> str:
+        """A folder named after the person is a good guess for the name (the classic, rules-based way)."""
+        parent = Path(first_file).parent.name
+        return parent if parent and parent.lower() not in ("documents", "downloads", "desktop", "scans") else ""
+
+    def _var_for(self, key: str) -> tk.StringVar | None:
+        if key == "name":
+            return self.name_var
+        if key == "surname":
+            return self.surname_var
+        for label, k in custom_keys(self._custom_labels()).items():
+            if k == key:
+                return self.custom_vars.get(label)
+        return None
+
+    def _ai_prune(self) -> None:
+        """Forget AI-filled values you have edited since (they are yours now) and refresh the note."""
+        if not hasattr(self, "ai_filled"):
+            return
+        for key, val in list(self.ai_filled.items()):
+            var = self._var_for(key)
+            if var is None or var.get().strip() != val:
+                del self.ai_filled[key]
+        self._ai_note()
+
+    def _ai_note(self) -> None:
+        names = {"name": "Full name", "surname": "Surname"}
+        for label, k in custom_keys(self._custom_labels()).items():
+            names[k] = label
+        self.ai_note_var.set("✨ Filled by the AI - please check: " + ", ".join(
+            f"{names.get(k, k)} = {v}" for k, v in self.ai_filled.items()) if self.ai_filled else "")
+
+    def autofill_cover(self, auto: bool = False) -> None:
+        """Fill EMPTY cover boxes from the documents (name, surname, custom fields) - modes: Settings > AI > cover values."""
+        ai = self.ai_ctx()
+        mode = ai.mode("cover")
+        if not ai.enabled or mode == "rules":
+            if not auto:
+                info_box(self.frame, "AI filling is off. Turn on Settings > AI (Ollama) and set 'Cover-page values' to "
+                                     "something other than 'Rules only'.")
+            return
+        docs = []
+        for e in self.entries.values():
+            if e.info is None or e.info.error or e.dtype == EXCLUDED or e.is_part or not e.info.text.strip():
+                continue
+            t = self._type(e.dtype)
+            docs.append((t.name if t else e.name, e.info.text, bool(looks_like_passport(e.info.text))))
+        if not docs:
+            if not auto:
+                info_box(self.frame, "Add the person's documents first.")
+            return
+        asks: list[FieldAsk] = []
+        if not self.name_var.get().strip():
+            asks.append(FieldAsk("name", "Full name of the applicant (the person the documents are about)"))
+        if not self.surname_var.get().strip():
+            asks.append(FieldAsk("surname", "Surname / family name of the applicant"))
+        for label, key in custom_keys(self._custom_labels()).items():
+            var = self.custom_vars.get(label)
+            if var is not None and not var.get().strip():
+                asks.append(FieldAsk(key, label))
+        if not asks:
+            if not auto:
+                info_box(self.frame, "All cover boxes already have a value - nothing to fill.")
+            return
+        rules_values = {"name": self._folder_name_guess(next(iter(self.entries), ""))}
+        for _n, text, is_pp in docs:                                  # the classic way: surname from the passport MRZ
+            sn = extract_surname(text)[0] if is_pp else ""
+            if sn:
+                rules_values["surname"] = sn.title()
+                break
+        require = self.settings.get_bool("ai.require_grounding", True)
+        pairs = [(n, t) for n, t, _pp in sorted(docs, key=lambda d: not d[2])]        # passports first
+
+        def work(job):
+            return aidocs.fill_cover(ai, pairs, asks, rules_values, require)
+
+        self.status_var.set("✨ The AI is reading the documents to fill the cover boxes…")
+        self.app.jobs.submit(work, "AI: filling the cover form", tool=self.id, on_done=lambda r: self._cover_filled(r, auto),
+                             on_error=lambda m: self.log(f"AI fill failed: {m}", "error"), serial_key="docpacker.ai")
+
+    def _cover_filled(self, res, auto: bool) -> None:
+        for err in res.errors:
+            self.log(err, "warn")
+        filled = []
+        for key, value in res.values.items():
+            var = self._var_for(key)
+            if var is None or var.get().strip():                       # typed meanwhile: yours wins
+                continue
+            if res.sources.get(key) == "ai":
+                self.ai_filled[key] = value
+            var.set(value)
+            filled.append(key)
+            self.log(f"{key} filled by {'the AI' if res.sources.get(key) == 'ai' else 'the rules'}: {value}", "info")
+        self._ai_note()
+        self._refresh_summary()
+        if not filled and not auto:
+            info_box(self.frame, "Nothing could be filled: the documents do not show these values clearly enough.")
 
     # ------------------------------------------------------------------ adding files
     def accept_files(self, paths: list[str]) -> None:
@@ -411,9 +533,9 @@ class DocPacker(Tool):
         if not files:
             return
         if not self.name_var.get().strip():                     # a folder named after the person is a good guess
-            parent = Path(files[0]).parent.name
-            if parent and parent.lower() not in ("documents", "downloads", "desktop", "scans"):
-                self.name_var.set(parent)
+            guess = self._folder_name_guess(files[0])
+            if guess:
+                self.name_var.set(guess)
         for f in files:
             self.entries[f] = Entry(f)
             self.table.add({"file": Path(f).name, "type": "reading…", "score": "", "status": "", "pages": ""}, iid=f,
@@ -421,13 +543,26 @@ class DocPacker(Tool):
         cfg = ocr.OcrConfig.from_settings(self.settings)
         opts = ReadOptions(ocr=cfg.enabled, rotate=cfg.autorotate, mrz=cfg.mrz, deskew=cfg.deskew, page_images=True)
 
+        ai0, types0 = self.ai_ctx(), list(self._types)
+        thr0 = self.settings.get_int("match.fuzzy_threshold", 80) / 100
+        want_split = bool(self.get("auto_split"))
+
         def work(job):
             out = []
             for n, f in enumerate(files):
                 if job.cancelled:
                     break
                 job.progress(n, len(files), Path(f).name)
-                out.append((f, read_document(f, cfg, opts)))
+                info = read_document(f, cfg, opts)
+                if ai0.mode("doctype") != "rules" and not info.error:       # ask the AI here, off the UI thread;
+                    job.progress(n, len(files), f"AI: {Path(f).name}")      # the answers are cached for the table
+                    try:
+                        aidocs.recognise(types0, info, Path(f).name, thr0, ai0, blocking=True)
+                        if want_split and len(info.page_texts) > 1:
+                            aidocs.page_labels(types0, info, thr0, ai0, blocking=True)
+                    except Exception as exc:                                  # never lose the file because of the AI
+                        self.app.bridge.call(self.log, f"AI could not read {Path(f).name}: {exc}", "warn")
+                out.append((f, info))
             return out
 
         self.app.jobs.submit(work, f"Reading {len(files)} file(s)", tool=self.id, on_done=self._read_done,
@@ -445,13 +580,16 @@ class DocPacker(Tool):
         self._dedupe_notice()
         if self.get("auto_split"):
             thr = self.settings.get_int("match.fuzzy_threshold", 80) / 100
+            ai = self.ai_ctx()
             for path, _info in results or []:
                 e = self.entries.get(path)
-                groups = detect_groups(self._types, e.full or e.info, thr) if e and e.info and e.auto else []
+                groups = detect_groups(self._types, e.full or e.info, thr, ai, blocking=False) if e and e.info and e.auto else []
                 if groups:
                     self.split_entry(e, [(None, pages) for _tid, pages in groups])
                     self.log(f"{e.name}: split into {len(groups)} documents", "info")
         self.recheck()
+        if self.get("ai_autofill"):
+            self.autofill_cover(auto=True)
 
     def _dedupe_notice(self) -> None:
         seen: dict[str, str] = {}
@@ -467,15 +605,13 @@ class DocPacker(Tool):
         if e.info is None or e.info.error or not e.auto:
             return
         thr = self.settings.get_int("match.fuzzy_threshold", 80) / 100
-        best, best_score = UNASSIGNED, 0.0
         taken = {x.dtype for x in self.entries.values() if x is not e and x.dtype not in (UNASSIGNED, EXCLUDED)}
-        for t in self._types:
-            if not t.enabled:
-                continue
-            s = score_doctype(t, e.info, e.name, thr)
-            if s >= t.min_score and s > best_score + (0 if t.id not in taken else -0.05):
-                best, best_score = t.id, s
-        e.dtype, e.score = best, best_score
+        rec = aidocs.recognise(self._types, e.info, e.name, thr, self.ai_ctx(), taken, blocking=False)
+        e.dtype, e.score = rec.dtype, rec.score
+        e.src, e.reason, e.pending, e.conflict = rec.source, rec.reason, rec.pending, rec.conflict
+        if rec.error and (e.key, rec.error) not in self._ai_warned:
+            self._ai_warned.add((e.key, rec.error))
+            self.log(f"{e.name}: {rec.error} - the other method was used", "warn")
 
     def _evaluate(self, e: Entry, ctx: CheckContext) -> None:
         e.results = []
@@ -512,11 +648,14 @@ class DocPacker(Tool):
             typ, status, tag = "⚠ unreadable", e.info.error[:60], "fail"
         elif e.dtype == EXCLUDED:
             typ, status, tag = "(excluded)", "", "busy"
+        elif e.pending and t is None:
+            typ, status, tag = "✨ AI is reading…", "", "busy"
         elif t is None:
             typ, status, tag = "? not recognised", "", "warn"
         else:
             worst = e.worst()
-            typ = t.name + ("" if e.auto else "  ✎")
+            typ = t.name + ("" if e.auto else "  ✎") + ("  ✨" if e.auto and e.src == "ai" else "") + \
+                  ("  ⚠" if e.conflict else "")
             status = {"ok": "✔ all good", "manual_ok": "✔ all good", "info": "✔ ok"}.get(worst, "")
             if not status:
                 n = sum(1 for _l, s, _d in e.results if s == worst)
@@ -577,6 +716,14 @@ class DocPacker(Tool):
             return
         if e.info is not None and e.info.error:
             self.checks.insert("", "end", values=("✘", "Could not read the file", e.info.error), tags=("fail",))
+        if e.auto and e.src == "ai":
+            self.checks.insert("", "end", values=("✨", "Recognised by the AI", e.reason or "no reason given"))
+        if e.conflict:
+            other = self._type(e.conflict)
+            self.checks.insert("", "end", values=("⚠", "The other method disagrees",
+                                                  f"it chose '{other.name if other else e.conflict}'"), tags=("warn",))
+        if e.pending:
+            self.checks.insert("", "end", values=("✨", "AI is reading this file…", "the list updates by itself"))
         for i, (label, status, detail) in enumerate(e.results):
             tag = {"fail": "fail", "warn": "warn", "ok": "ok", "manual_ok": "ok"}.get(status, "")
             self.checks.insert("", "end", iid=str(i), values=(SYMBOL.get(status, "?"), label, detail), tags=(tag,))
@@ -774,12 +921,23 @@ class DocPacker(Tool):
             parts = [x for x in self.entries.values() if x.path == root.path and x.pages is not None]
             return [(x.dtype, x.pages or []) for x in parts] if root.full is not None else [(root.dtype, list(range(total)))]
 
-        def suggest() -> None:
-            groups = detect_groups(self._types, base, thr)
+        def show_suggestion(groups) -> None:
+            if not top.winfo_exists():
+                return
             if groups:
                 fill(groups)
             else:
                 info_box(top, "The pages all look like one document. Add the rows yourself.")
+
+        def suggest() -> None:
+            ai = self.ai_ctx()
+            if ai.mode("doctype") == "rules":
+                show_suggestion(detect_groups(self._types, base, thr))
+                return
+            types_now = list(self._types)
+            self.app.jobs.submit(lambda job: detect_groups(types_now, base, thr, ai, blocking=True),
+                                 "AI: looking at the pages", tool=self.id, on_done=show_suggestion,
+                                 on_error=lambda m: self.log(f"Suggestion failed: {m}", "error"), serial_key="docpacker.ai")
 
         def free_pages() -> str:
             used: set[int] = set()
@@ -865,6 +1023,18 @@ class DocPacker(Tool):
             issues.append(f"{self._problems()} file(s) failed their checks")
         if issues and not confirm(self.frame, "The package has problems (" + "; ".join(issues) + ").\n\nBuild it anyway?"):
             return
+        if self.get("ai_confirm_build"):
+            ai_docs = [e.name for e, _p in pairs if e.auto and e.src == "ai"]
+            if ai_docs or self.ai_filled:
+                lines = []
+                if ai_docs:
+                    lines.append(f"{len(ai_docs)} document(s) were recognised by the AI (marked ✨): " + ", ".join(ai_docs[:6])
+                                 + (" …" if len(ai_docs) > 6 else ""))
+                if self.ai_filled:
+                    lines.append("Values filled by the AI: " + ", ".join(f"{k} = {v}" for k, v in self.ai_filled.items()))
+                if not confirm(self.frame, "\n\n".join(lines) + "\n\nHave you checked them? (Assign a type by hand or edit "
+                                           "a box to confirm it yourself.)\n\nBuild the package now?"):
+                    return
         vals = self.values()
         base = Path(self.get("output_folder") or Path(pairs[0][0].path).parent)
         folder = base / render_folder(self.get("output_subfolder") or "", {**vals, "name": vals["name"] or "package"})
@@ -951,8 +1121,13 @@ class DocPacker(Tool):
             lines.append(f"{e.name}{where}  ->  {t.name if t else '(not recognised)' if e.dtype == UNASSIGNED else '(excluded)'}")
             if e.info is not None and e.info.error:
                 lines.append(f"   ERROR: {e.info.error}")
+            if e.auto and e.src == "ai":
+                lines.append("   (recognised by the AI" + (f": {e.reason}" if e.reason else "") + ")")
             for label, status, detail in e.results:
                 lines.append(f"   [{SYMBOL.get(status, '?')}] {label}" + (f" - {detail}" if detail else ""))
+        if self.ai_filled:
+            lines += ["", "Values filled by the AI (not edited afterwards): " +
+                      ", ".join(f"{k} = {v}" for k, v in self.ai_filled.items())]
         return "\n".join(lines)
 
     def show_report(self) -> None:
