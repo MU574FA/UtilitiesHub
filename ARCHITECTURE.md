@@ -72,3 +72,21 @@ Rules: write new files with `flow.new_file(stem, suffix)` (never overwrite origi
 outside the work folder set `side_effect=True`, journal what they do and, when `flow.preview` is true, only *say* what
 they would do (add made-up paths to `flow.virtual`); raise `FlowStop("message")` to end the run politely.
 The brick appears in the box, gets a settings form from its `Param` list and is covered by `tests/test_workflow.py`.
+
+## Visa Tracker (extending it)
+`core/visa.py` (model `Person`, `Policy`, deadline / level / next-due / todo / issues rules, `Store` with atomic saves, daily
+backups, undo and unknown-key preservation), `core/visa_io.py` (import mapping, Excel/CSV rows, `.ics`, templates, WhatsApp /
+mailto links), `core/visa_files.py` (page scoring, dates on a page, `extract_pages` via `pdfops.assemble`),
+`ui/visa_dialogs.py` (person, contact, page picker, import, templates), `tools/visa_tracker.py` (screen).
+All rules take `today` as an argument, so they are tested without a display (`tests/test_visa.py`; the screen is covered by
+`tests/ui_smoke/visa_tracker.py`).
+
+* **New field on a person**: add it to `Person`, then to `PersonDialog`, `COLUMNS` / `_row` and `_tab_details`; add a synonym
+  line to `visa_io.IMPORT_FIELDS` and a column in `visa_io.PEOPLE_HEADERS` to import / export it. Old files keep working
+  (missing keys use the default; unknown keys are kept).
+* **User-defined fields**: Settings > Visa Tracker > *Extra fields* (stored in `Person.extra`, available as `{placeholders}`).
+* **New rule / warning**: add to `visa.issues()` (alert) or `visa.todo()` (counts for the badge and 'To do today').
+* **New status, channel, ticket state or document type**: add a `(value, label)` to the lists at the top of `core/visa.py`.
+* **New filter chip**: `visa.FILTERS` + `visa.matches_filter` + `CHIPS` in the tool.
+* **Tool badge**: any tool can return a count from `Tool.badge()` and call `app.refresh_badges()`; `stats_when_closed = True`
+  lets Home show `stats()` before the tool was opened.

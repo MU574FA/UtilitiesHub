@@ -6,6 +6,7 @@ A modern, offline-first desktop productivity suite built with Python and Tkinter
 
 ## ✨ Features
 
+- **🛫 Visa Tracker**: Never miss a visa window again. Tracks every person's visa (default 90 days), shows days left with colour codes, tells you **who to contact today**, keeps a **proof log** of every follow-up, stores *just the visa page* cut out of a big file, tracks tickets and flights, and warns about problems (flight after the deadline, no ticket, passport too short). See [Visa Tracker](#-visa-tracker).
 - **📑 CV Sorter**: Automatically inspects, renames, and sorts incoming resumes (PDF, DOCX, PPTX, images) based on candidate names, contact details, and job titles with fuzzy matching.
 - **📦 DocPacker**: Assembles comprehensive document dossiers and visa/application packages with automatic cover pages, page rotation, deskewing, and validation.
 - **📄 PDF Desk (Multi-file Merger)**: Combine, split, reorder, rotate, and optimize documents with instantaneous thumbnail previews and drag-and-drop.
@@ -59,6 +60,31 @@ A modern, offline-first desktop productivity suite built with Python and Tkinter
    python run.py
    ```
    *(On Windows, you can also double-click `Start-UtilsHub.bat`)*
+
+---
+
+## 🛫 Visa Tracker
+
+For HR teams that recruit from abroad and pay for visas that must be used within a fixed window (default **90 days**).
+
+**Daily use**
+1. Open *Visa Tracker*. The sidebar button shows how many people need contact **today**; the **To do today** chip lists them.
+2. Contact the person (📞 *Spoke*, 📵 *No answer*, 💬 *Sent* are one click; *Log…* (Ctrl+L) writes a full entry with a note and a next reminder date).
+3. When they land: **✔ Arrived**. Reminders stop.
+
+**Adding people**: *＋ Add person* (Ctrl+N, with *Save & add another*), *Import…* from Excel/CSV (columns are matched automatically; one Ctrl+Z undoes a whole import) or *Fill from passport scan* inside the form.
+
+**The visa page**: in a person's *Documents* tab choose *Visa page from a big file…* (or drop the file on the tool). Every page is shown as a thumbnail, the likely visa page is marked ★ (found by visa wording, the passport number and the name) and the issue / valid-until dates are read from it. Only that single page is stored. Tickets work the same way (a stored ticket marks the ticket as booked).
+
+**How often is a person contacted?** Settings > Visa Tracker > *How often to contact a person*. Default `60:14, 30:7, 14:3, 0:1` = every 14 days with 60+ days left, every 7 from 30, every 3 from 14 and **daily** when fewer than 14 days are left. After *No answer* the person is due again the next day.
+
+**Proof**: every contact is saved with date, time, channel, result, note and your name (*Settings > Your name*). *Export > Follow-up proof log* gives an Excel file per person or for everybody.
+
+**Messages**: ready WhatsApp / e-mail texts with {placeholders} (editable, one is picked automatically by urgency). After opening WhatsApp or e-mail the tracker asks whether to log it as sent.
+
+**Safety net**: every change is saved at once; a dated backup is kept daily (14 by default); Ctrl+Z / Ctrl+Y undo and redo; files are never deleted; if the data file is damaged the newest backup is loaded. *Export > Calendar file (.ics)* puts every deadline (with alarms 14/7/3/1 days before), follow-up and flight into Outlook / Google Calendar.
+
+**Data location**: `<data folder>/visa_tracker/` (`people.json`, `files/`, `backups/`). It contains passports and phone numbers: keep the folder on a protected disk. You can point *Settings > Data* to a shared or synced folder (copy the folder there first). Several PCs can read and write it; the program reloads changes made elsewhere (the last save wins if two people change the same second).
 
 ---
 

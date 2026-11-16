@@ -33,6 +33,7 @@ class Tool:
     description = ""
     order = 50
     accepts = ()                  # file extensions this tool can take via "Send to" (empty = any)
+    stats_when_closed = False     # True: Home shows stats() even before the tool was opened (tool must load by itself)
 
     def __init__(self, app) -> None:
         self.app = app
@@ -140,3 +141,7 @@ class Tool:
     def stats(self) -> dict[str, int | str]:
         """Shown on the Home dashboard."""
         return {}
+
+    def badge(self) -> str:
+        """Short text (a count) shown behind the name on the sidebar button; empty = nothing."""
+        return ""

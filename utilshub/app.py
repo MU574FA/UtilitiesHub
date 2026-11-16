@@ -26,7 +26,7 @@ from .ui.settings_ui import SettingsWindow
 from .ui.theme import ThemeManager
 from .ui.widgets import Toast, confirm, info, tip
 
-TOOL_MODULES = ["home", "cv_sorter", "docpacker", "file_picker", "duplicates", "scan_cleaner", "screenshot",
+TOOL_MODULES = ["home", "visa_tracker", "cv_sorter", "docpacker", "file_picker", "duplicates", "scan_cleaner", "screenshot",
                 "name_matcher", "ocr_match", "passport", "pdf_desk", "sheet_sync", "workflows", "autopilot", "history"]
 
 STATE_OPTS = [
@@ -253,7 +253,7 @@ class App:
         if not tabs:
             ttk.Label(self.nav, text="UTILS HUB" if not compact else "UH", style="SideTitle.TLabel").pack(anchor="w", padx=14, pady=(12, 6))
         for t in self.visible_tools():
-            text = t.icon if (compact and not tabs) else f"{t.icon}  {t.title}"
+            text = self._nav_text(t, compact and not tabs)
             b = ttk.Button(self.nav, text=text, style="Side.TButton", command=lambda i=t.id: self.show_tool(i), width=3 if compact and not tabs else 0)
             b.pack(side="left" if tabs else "top", fill=None if tabs else "x")
             tip(b, t.description or t.title)
@@ -266,6 +266,28 @@ class App:
             sb.pack(side="bottom", fill="x", pady=(0, 6))
         if self.current and self.current.id in self._nav_buttons:
             self._nav_buttons[self.current.id].configure(style="SideSel.TButton")
+
+    def _nav_text(self, tool: Tool, icon_only: bool) -> str:
+        """Button text; a tool can add a count (Tool.badge), e.g. 'Visa Tracker  (3)'."""
+        try:
+            badge = tool.badge()
+        except Exception:
+            logging.getLogger("app").exception("badge of %s", tool.id)
+            badge = ""
+        if icon_only:
+            return tool.icon
+        return f"{tool.icon}  {tool.title}" + (f"  ({badge})" if badge else "")
+
+    def refresh_badges(self) -> None:
+        """Update the counts on the sidebar buttons in place (tools call this when their numbers change)."""
+        compact = self.settings.get_bool("window.sidebar_compact") and self.settings.get("window.nav_style") != "tabs"
+        for tool_id, button in list(self._nav_buttons.items()):
+            tool = self.tools.get(tool_id)
+            try:
+                if tool is not None and button.winfo_exists():
+                    button.configure(text=self._nav_text(tool, compact))
+            except tk.TclError:
+                pass
 
     def _nav_menu(self, event, tool_id: str) -> None:
         """Right-click a sidebar button: move it or hide it."""

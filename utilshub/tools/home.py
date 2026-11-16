@@ -137,7 +137,7 @@ class HomeTool(Tool):
             if show_desc:
                 ttk.Label(card, text=t.description, style="Muted.TLabel", wraplength=max(160, 760 // cols - 40),
                           justify="left").pack(anchor="w")
-            st = t.stats() if (show_stats and t.built) else {}
+            st = t.stats() if (show_stats and (t.built or t.stats_when_closed)) else {}
             if st:
                 ttk.Label(card, text="  ".join(f"{k}: {v}" for k, v in st.items())).pack(anchor="w", pady=(4, 0))
             ttk.Button(card, text="Open", command=lambda i=t.id: self.app.show_tool(i)).pack(anchor="w", pady=(6, 0))
