@@ -23,6 +23,7 @@ from . import ocr
 from .imaging import apply_fix, has_camera_exif, open_rgb, rotate_cw
 from .mrz import looks_like_passport
 from .office import OfficeError, convert
+from .settings import temp_dir
 
 try:
     import pymupdf as fitz
@@ -322,7 +323,7 @@ def read_pptx(path: Path, cfg, opts) -> DocInfo:
 
 
 def _via_libreoffice(path: Path, cfg, opts, target: str) -> DocInfo:
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(dir=temp_dir()) as tmp:
         converted = convert(path, target, Path(tmp), cfg.libreoffice_cmd)
         info = read_document(converted, cfg, opts)
     if info.error:

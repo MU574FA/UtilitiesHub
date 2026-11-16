@@ -11,6 +11,7 @@ from ..core import ocr
 from ..core.pdfops import COMPRESSION_LEVELS, AssembleOptions, Piece, assemble, extract_pages, make_searchable, split_pdf
 from ..core.readers import supported_extensions
 from ..core.schema import Opt
+from ..core.settings import temp_dir
 from ..core.system import open_path, reveal
 from ..core.textutil import parse_page_ranges, sanitize_filename
 from ..ui.dnd import DropZone
@@ -350,7 +351,7 @@ class PdfDesk(Tool):
                              on_error=lambda m: error(self.frame, f"Could not merge:\n{m}"), serial_key="pdf_desk.build")
 
     def _temp_assembled(self, job) -> str:
-        fd, tmp = tempfile.mkstemp(suffix=".pdf", prefix="pdfdesk_")
+        fd, tmp = tempfile.mkstemp(suffix=".pdf", prefix="pdfdesk_", dir=temp_dir())
         os.close(fd)
         assemble(self.pieces(), tmp, AssembleOptions(page_size=self.get("page_size"), bookmarks=False,
                                                     libreoffice_cmd=self.settings.get("ocr.libreoffice_cmd")),

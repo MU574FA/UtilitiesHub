@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .fileops import Journal, rename_in_place, transfer, resolve_target
+from .settings import data_dir, temp_dir
 from .textutil import human_size, parse_ext_list, split_list
 
 log = logging.getLogger(__name__)
@@ -200,7 +201,7 @@ class FlowStop(Exception):
 @dataclass
 class RunEnv:
     """What the engine needs from the outside world (the app supplies the real ones)."""
-    out_root: Path = field(default_factory=lambda: Path(tempfile.gettempdir()) / "utilshub_workflows")
+    out_root: Path = field(default_factory=lambda: data_dir() / "workflow_output")
     journal: Journal | None = None
     ocr_cfg: Any = None                                # core.ocr.OcrConfig (None = defaults)
     llm_cfg: Any = None                                # core.llm.LlmConfig (None = the one inside ocr_cfg, else AI off)
@@ -233,7 +234,7 @@ class Flow:
         """Folder for files the workflow MAKES (originals are never touched by those bricks)."""
         if self._work is None:
             if self.preview:
-                self._tmp = Path(tempfile.mkdtemp(prefix="utilshub_preview_"))
+                self._tmp = Path(tempfile.mkdtemp(prefix="utilshub_preview_", dir=temp_dir()))
                 self._work = self._tmp
             else:
                 base = Path(self.wf.output_folder.strip().strip('"')) if self.wf.output_folder.strip() else self.env.out_root

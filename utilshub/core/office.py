@@ -7,6 +7,7 @@ import threading
 from pathlib import Path
 
 from .ocr import find_libreoffice
+from .settings import temp_dir
 
 OFFICE_EXTS = {".docx", ".doc", ".rtf", ".odt", ".pptx", ".ppt", ".odp", ".xlsx", ".xls", ".ods"}
 WORD_EXTS = {".docx", ".doc", ".rtf", ".odt"}
@@ -45,7 +46,7 @@ def to_pdf_cached(path: Path, cache_dir: Path, cmd: str = "") -> Path:
     if target.exists():
         return target
     cache_dir.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(dir=temp_dir()) as tmp:
         produced = convert(path, "pdf", Path(tmp), cmd)
         target.write_bytes(produced.read_bytes())
     return target

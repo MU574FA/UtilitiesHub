@@ -22,6 +22,7 @@ from .textutil import has_arabic
 from .imaging import IMAGE_EXTS, apply_fix, open_rgb, rotate_cw, to_jpeg_bytes
 from .office import OFFICE_EXTS, OfficeError, convert, docx_fallback_pdf
 from .ocr import find_libreoffice
+from .settings import temp_dir
 
 try:
     import pymupdf as fitz
@@ -138,7 +139,7 @@ def assemble(pieces: list[Piece], out_path: str | Path, opts: AssembleOptions | 
         w, h = page_size_points(opts.page_size if opts.page_size != "fit" else "a4")
         out.new_page(width=w, height=h)
     active = [(i, p) for i, p in enumerate(pieces) if not p.skip]
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(dir=temp_dir()) as tmpdir:
         tmp = Path(tmpdir)
         for n, (idx, piece) in enumerate(active):
             if progress:

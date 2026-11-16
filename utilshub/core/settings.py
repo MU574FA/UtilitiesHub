@@ -7,8 +7,8 @@
     settings.section("ocr.")               # {"lang": "eng", ...}  (prefix stripped)
 
 Stored flat (`{"cv.watch_folder": "..."}`) so a hand edit is easy and old keys survive.
-Set UTILSHUB_HOME to relocate the data folder (or create a file called `portable.flag`
-next to run.py to keep everything beside the program).
+Everything lives in `<project>/data` (settings.json, journal, history, logs, caches, temp files).
+Set UTILSHUB_HOME to relocate the data folder.
 """
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ import copy
 import json
 import logging
 import os
+import shutil
 import sys
 import threading
 from pathlib import Path
@@ -33,19 +34,43 @@ def app_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def _legacy_dir() -> Path:
+    """Where older versions kept their data (per-user OS folder).  Only used to migrate."""
+    if sys.platform.startswith("win"):
+        return Path(os.environ.get("APPDATA", Path.home())) / APP_DIR_NAME
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / APP_DIR_NAME
+    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / APP_DIR_NAME.lower()
+
+
+def _migrate_legacy(target: Path) -> None:
+    """One-time copy of data from the old per-user folder into the project's data folder."""
+    old = _legacy_dir()
+    try:
+        if not old.is_dir() or old.resolve() == target.resolve() or any(target.iterdir()):
+            return
+        shutil.copytree(old, target, dirs_exist_ok=True, ignore=shutil.ignore_patterns("cache", "tmp"))
+        log.info("Copied existing data from %s into %s", old, target)
+    except OSError:
+        log.exception("Could not migrate data from %s", old)
+
+
 def data_dir() -> Path:
-    """Folder for settings, history, journal, caches and logs."""
+    """Folder for settings, history, journal, caches and logs: `<project>/data`.
+
+    UTILSHUB_HOME may point somewhere else (used by the tests)."""
     override = os.environ.get("UTILSHUB_HOME")
-    if override:
-        path = Path(override)
-    elif (app_root() / "portable.flag").exists():
-        path = app_root() / "data"
-    elif sys.platform.startswith("win"):
-        path = Path(os.environ.get("APPDATA", Path.home())) / APP_DIR_NAME
-    elif sys.platform == "darwin":
-        path = Path.home() / "Library" / "Application Support" / APP_DIR_NAME
-    else:
-        path = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / APP_DIR_NAME.lower()
+    path = Path(override) if override else app_root() / "data"
+    fresh = not path.exists()
+    path.mkdir(parents=True, exist_ok=True)
+    if fresh and not override:
+        _migrate_legacy(path)
+    return path
+
+
+def temp_dir() -> Path:
+    """Scratch space (previews, temporary PDFs).  Kept inside the data folder, not the system temp."""
+    path = data_dir() / "tmp"
     path.mkdir(parents=True, exist_ok=True)
     return path
 

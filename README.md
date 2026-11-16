@@ -102,12 +102,14 @@ For HR teams that recruit from abroad and pay for visas that must be used within
 
 ## ⚙️ Configuration & Data Storage
 
-UtilsHub stores settings, journals, and logs in your standard user application directory:
-- **Windows**: `%APPDATA%\UtilsHub`
-- **macOS**: `~/Library/Application Support/UtilsHub`
-- **Linux**: `~/.config/utilshub`
+Everything UtilsHub saves stays inside the project folder, in `./data`:
+- `settings.json` – all settings
+- `journal.jsonl`, `cv_history.csv`, `workflows.json`, `visa_tracker/` – history and tool data
+- `utilshub.log`, `cache/`, `tmp/` – logs, render caches and scratch files
+- `workflow_output/` – default output of workflows (unless you pick another folder)
 
-> **Portable Mode:** Create an empty file named `portable.flag` next to `run.py` (or set the `UTILSHUB_HOME` environment variable) to store all settings and logs locally inside a `./data` directory.
+Move the project folder and your data moves with it. On first start, data from an older install (`%APPDATA%\UtilsHub`, `~/Library/Application Support/UtilsHub` or `~/.config/utilshub`) is copied into `./data` once.
+Set the `UTILSHUB_HOME` environment variable only if you want the data somewhere else.
 
 ---
 
