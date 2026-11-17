@@ -26,8 +26,9 @@ from .ui.settings_ui import SettingsWindow
 from .ui.theme import ThemeManager
 from .ui.widgets import Toast, confirm, info, tip
 
-TOOL_MODULES = ["home", "visa_tracker", "cv_sorter", "docpacker", "file_picker", "duplicates", "scan_cleaner", "screenshot",
-                "name_matcher", "ocr_match", "passport", "pdf_desk", "sheet_sync", "workflows", "autopilot", "history"]
+# Hubs (cleanup, extract, match, automation) hold the smaller tools as tabs; see tools/hub.py.
+TOOL_MODULES = ["home", "visa_tracker", "cv_sorter", "docpacker", "file_picker", "cleanup", "pdf_desk", "extract", "match",
+                "automation"]
 
 STATE_OPTS = [
     Opt("window.geometry", "", "Window geometry", "str"),
@@ -88,6 +89,9 @@ class App:
                 self.tools[cls.id] = cls(self)
             except Exception:
                 logging.getLogger("app").exception("Could not create tool %s", cls.id)
+        # tab id -> hub id: show_tool("passport") / send_to("duplicates", ...) still work and open the right tab
+        self.aliases: dict[str, str] = {m.id: t.id for t in self.tools.values() for m in t.members() if m is not t}
+        self._migrate_tool_ids()
         self._build_shell()
         self._restore_window()
         self._bind_keys()
@@ -154,10 +158,50 @@ class App:
         SettingsWindow.open(self, page)
 
     def send_to(self, tool_id: str, paths: list[str]) -> None:
+        hub_id = self.aliases.get(tool_id)
+        if hub_id:                                          # a tab of a hub: open it and hand over the files
+            self.show_tool(hub_id)
+            self.tools[hub_id].deliver(tool_id, list(paths))
+            return
         tool = self.tools.get(tool_id)
         if tool:
             self.show_tool(tool_id)
             tool.accept_files(list(paths))
+
+    def tool(self, tool_id: str) -> Tool | None:
+        """A tool by id - also the ones that live as a tab inside a hub ('passport', 'duplicates' ...)."""
+        return self.tools.get(tool_id) or next((m for m in self.iter_tools() if m.id == tool_id), None)
+
+    def iter_tools(self) -> list[Tool]:
+        """Every real tool, with the tabs of hubs unpacked (what automation, statistics ... need)."""
+        return [m for t in self.tools.values() for m in t.members()]
+
+    def _migrate_tool_ids(self) -> None:
+        """Settings written before the hubs name single tools ('passport', 'duplicates' ...): map them to their hub."""
+        def mapped(ids):
+            out: list[str] = []
+            for i in ids or []:
+                i = self.aliases.get(i, i)
+                if i not in out:
+                    out.append(i)
+            return out
+        s = self.settings
+        for key in ("window.tool_order",):
+            old = s.get(key) or []
+            new = mapped(old)
+            if new != list(old):
+                s.set(key, new)
+        old_hidden = list(s.get("window.hidden_tools") or [])
+        if any(i in self.aliases for i in old_hidden):
+            hidden = [i for i in old_hidden if i not in self.aliases]
+            for hub in self.tools.values():             # a hub stays hidden only if every one of its tabs was hidden
+                subs = [m.id for m in hub.members() if m is not hub]
+                if subs and all(i in old_hidden for i in subs) and hub.id not in hidden:
+                    hidden.append(hub.id)
+            s.set("window.hidden_tools", hidden)
+        last = s.get("window.last_tool")
+        if last in self.aliases:
+            s.set("window.last_tool", self.aliases[last])
 
     # ------------------------------------------------------------------ tool order and visibility
     def sorted_tools(self) -> list[Tool]:
@@ -303,10 +347,15 @@ class App:
         m.tk_popup(event.x_root, event.y_root)
 
     def show_tool(self, tool_id: str) -> None:
+        tab = None
+        if tool_id in self.aliases:                         # a tab of a hub: open the hub, then select the tab
+            tab, tool_id = tool_id, self.aliases[tool_id]
         tool = self.tools.get(tool_id)
         if tool is None:
             return
         if self.current is tool:
+            if tab:
+                tool.select(tab)
             return
         if self.current:
             try:
@@ -327,6 +376,8 @@ class App:
             b.configure(style="SideSel.TButton" if i == tool_id else "Side.TButton")
         self.root.title(f"{tool.title} - {APP_NAME}")
         self.settings.set("window.last_tool", tool_id)
+        if tab:
+            tool.select(tab)
         try:
             tool.on_show()
         except Exception:
@@ -490,7 +541,7 @@ class App:
             self.current.accept_files(paths)
 
     def start_all_auto(self) -> None:
-        for t in self.tools.values():
+        for t in self.iter_tools():
             if t.can_automate() and not t.auto_running():
                 try:
                     t.start_auto()
@@ -498,7 +549,7 @@ class App:
                     self.log(f"{t.title}: could not start - {exc}", "error")
 
     def stop_all_auto(self) -> None:
-        for t in self.tools.values():
+        for t in self.iter_tools():
             if t.can_automate() and t.auto_running():
                 t.stop_auto()
 

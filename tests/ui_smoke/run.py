@@ -61,7 +61,7 @@ home.ensure_built(app.root) if False else None
 home.parent = None
 home.build(hp); home.built = True
 cards = home.cards.winfo_children()
-check("one card per visible tool (minus home/autopilot/history)", len(cards) == len([t for t in app.visible_tools() if t.id not in ("home", "autopilot", "history")]), len(cards))
+check("one card per visible tool (minus home)", len(cards) == len([t for t in app.visible_tools() if t.id != "home"]), len(cards))
 n_before = len(cards)
 app.set_tool_hidden("duplicates", True); faketk.flush()
 check("hiding a tool removes its card", len(home.cards.winfo_children()) == n_before - 1)
@@ -70,7 +70,7 @@ btn = [w for w in home.hidden_bar.winfo_children() if "Duplicate" in str(w._kw.g
 btn[0]._kw["command"](); faketk.flush()
 check("unhide button works", "duplicates" not in app.settings.get("window.hidden_tools"))
 app.settings.set("home.columns", 2); faketk.flush()
-check("changing a Home setting redraws", home.cards is not None and len(home.cards.winfo_children()) == len([t for t in app.visible_tools() if t.id not in ("home","autopilot","history")]))
+check("changing a Home setting redraws", home.cards is not None and len(home.cards.winfo_children()) == len([t for t in app.visible_tools() if t.id != "home"]))
 logs_before = len(home.logview.winfo_children()) if home.logview else 0
 app.log("hello", "info", "t")
 check("log listener registered once (no duplicate lines after redraw)", sum(1 for f in app._log_listeners if getattr(f, "__self__", None) is home) == 1)
@@ -249,6 +249,131 @@ check("manual edits are used for the output (3 pages kept, turned)", im.n_frames
 check("keys and commands declared", "<F5>" in cl.keys() and len(cl.commands()) == 3 and cl.stats() == {"Files": 3})
 check("no job raised an error", not SyncJobs.errors, SyncJobs.errors)
 
+
+# ---------------------------------------------------------------- Hubs (tools as tabs)
+section("Hubs")
+import os, time as _time
+os.environ["UTILSHUB_HOME"] = str(tmp / "data")
+from utilshub.tools.cleanup import CleanupHub
+from utilshub.tools.extract import ExtractHub
+from utilshub.tools.automation import AutomationHub
+from utilshub.core.workflow import Step, Workflow
+
+def hub_app():
+    a = FakeApp(Path(tempfile.mkdtemp()))
+    for H in (CleanupHub, ExtractHub, AutomationHub):
+        a.settings.register(H.options())
+    for cls in (CleanupHub, AutomationHub):
+        a.tools[cls.id] = cls(a)
+    a.aliases = {m.id: t.id for t in a.tools.values() for m in t.members() if m is not t}
+    return a
+
+happ = hub_app()
+ch = happ.tools["cleanup"]
+check("hub holds its two tools, linked back to it", [m.id for m in ch.members()] == ["duplicates", "scan_cleaner"] and all(m.host is ch for m in ch.members()))
+check("aliases map tab ids to the hub", happ.aliases["scan_cleaner"] == "cleanup" and happ.aliases["history"] == "automation")
+check("hub settings include every tab's options + its own", happ.settings.get("cleanup.last_tab") == "" and happ.settings.get("cleanup.show_filebar") is True and
+      any(o.key.startswith("scan_cleaner.") for o in CleanupHub.options()) and any(o.key.startswith("duplicates.") for o in CleanupHub.options()))
+check("hub settings pages are the tabs' pages", {p.id for p in CleanupHub.pages()} == {"duplicates", "scan_cleaner"})
+ch.ensure_built(happ.root)
+check("first tab built, the others wait until opened", ch.member("duplicates").built and not ch.member("scan_cleaner").built)
+ch.on_show()
+ch.select("scan_cleaner")
+check("select builds the tab lazily and remembers it", ch.member("scan_cleaner").built and ch.active.id == "scan_cleaner" and happ.settings.get("cleanup.last_tab") == "scan_cleaner")
+ch.nb.select(0)                                            # user clicks the first tab: the Tk event reaches the hub
+check("clicking a tab activates it", ch.active.id == "duplicates")
+# keys: only the open tab's shortcuts, plus tab switching
+check("keys of the open tab + Alt+Left/Right", "<Alt-Right>" in ch.keys() and set(ch.member("duplicates").keys()) <= set(ch.keys()))
+ch.next_tab(); check("Alt+Right moves to the next tab, wrapping around", ch.active.id == "scan_cleaner")
+ch.next_tab(); check("... and back to the first", ch.active.id == "duplicates")
+# files
+got = []
+ch.member("duplicates").accept_files = lambda p: got.append(("dup", p))
+ch.member("scan_cleaner").accept_files = lambda p: got.append(("scan", p))
+ch.accept_files(["/x/a.pdf", "/x/b.pdf"])
+check("dropped files go to the open tab and stay on the bar", got == [("dup", ["/x/a.pdf", "/x/b.pdf"])] and ch.shared == ["/x/a.pdf", "/x/b.pdf"])
+check("files bar text counts them", "2 file(s)" in ch._files_lbl._kw["text"] and all(b._kw["state"] == "normal" for b in ch._send_buttons))
+ch.deliver("scan_cleaner", ch.shared)
+check("the same files can be sent to another tab", got[-1] == ("scan", ["/x/a.pdf", "/x/b.pdf"]) and ch.active.id == "scan_cleaner")
+ch.clear_files()
+check("clearing empties the bar and disables the buttons", ch.shared == [] and all(b._kw["state"] == "disabled" for b in ch._send_buttons))
+# forwarded things
+titles = [c.title for c in ch.commands()]
+check("palette: a command per tab + the tabs' own commands", "Clean-up: open Scans" in titles and len(titles) >= 2 + len(ch.member("duplicates").commands()))
+check("stats are prefixed with the tab", all(k.startswith(("Duplicates: ", "Scans: ")) for k in ch.stats()) and ch.stats())
+check("members() lets the shell reach automation of every tab", happ.iter_tools() is not None and ch.member("scan_cleaner") in happ.iter_tools())
+
+# a tab that cannot load must not break the rest
+check("extract hub degrades gracefully when a tab's library is missing", len(ExtractHub.member_classes()) in (2, 3))
+
+# ---- Automation hub: Autopilot folder triggers run a saved workflow
+ah = happ.tools["automation"]
+check("automation hub = workflows + autopilot + history", [m.id for m in ah.members()] == ["workflows", "autopilot", "history"])
+ah.ensure_built(happ.root); ah.on_show()
+ap = ah.member("autopilot"); wft = ah.member("workflows")
+check("autopilot can find the workflows tab's store", ap._workflow_store() is wft.store)
+dest, inbox = tmp / "sorted", tmp / "inbox"; inbox.mkdir()
+wft.store.put(Workflow("Copy PDFs", [Step("given", {}), Step("keep_types", {"types": "pdf"}), Step("to_folder", {"dest": str(dest), "action": "copy", "by": "type"})]))
+from utilshub.core.triggers import Trigger
+trig = Trigger(name="Inbox", folder=str(inbox), workflow="Copy PDFs", extensions="pdf", quiet_seconds=0.0)
+check("no trigger yet: autopilot has nothing to automate", not ap.can_automate())
+ap.triggers.put(trig)
+check("a valid enabled trigger makes autopilot automatable", ap.can_automate() and not ap.auto_running())
+ap.start_auto()
+check("start_auto starts the watcher", ap.auto_running() and "1 of 1" in ap.auto_summary())
+(inbox / "visa.pdf").write_bytes(b"%PDF-1.4 fake")
+(inbox / "note.txt").write_text("ignore me")
+t0 = _time.monotonic()
+while _time.monotonic() - t0 < 8 and not list(dest.rglob("visa.pdf")):
+    _time.sleep(0.1); faketk.flush()
+check("a file arriving in the folder runs the workflow on it", len(list(dest.rglob("visa.pdf"))) == 1 and not list(dest.rglob("note.txt")), list(dest.rglob("*")))
+check("last run is remembered for the table", trig.id in ap.last and "Done" in ap.last[trig.id], ap.last)
+(inbox / "second.pdf").write_bytes(b"%PDF-1.4 two")
+(inbox / "third.pdf").write_bytes(b"%PDF-1.4 three")
+ap.stop_auto()
+check("stop_auto stops the watchers", not ap.auto_running())
+check("autopilot's table is only built once its tab is opened", not ap.built)
+ah.select("autopilot")
+check("opening the tab lists the trigger", ap.built and trig.id in ap.tree.get_children())
+ap.tree.selection_set(trig.id)
+ap.test_selected(); faketk.flush()
+check("Test (preview) changes nothing", not list(dest.rglob("second.pdf")) and not list(dest.rglob("third.pdf")))
+trig.workflow = "Deleted workflow"; ap.triggers.put(trig)
+n_err = len([l for l in happ.logs if l[1] == "error"])
+ap._submit(trig, [inbox / "second.pdf"], False)
+check("a trigger whose workflow was deleted reports it instead of crashing", len([l for l in happ.logs if l[1] == "error"]) == n_err + 1)
+# ---- the shell: old ids still work, old saved settings migrate
+from utilshub import app as appmod
+class Shell:
+    """Just the parts of App that show_tool / send_to / migration touch."""
+    show_tool, send_to, iter_tools, tool, _migrate_tool_ids = (appmod.App.show_tool, appmod.App.send_to, appmod.App.iter_tools,
+                                                              appmod.App.tool, appmod.App._migrate_tool_ids)
+    def __init__(self, a):
+        self.tools, self.aliases, self.settings, self.root = a.tools, a.aliases, a.settings, a.root
+        self.current, self._nav_buttons, self.content, self.logs = None, {}, faketk.Widget(a.root), []
+    def log(self, *a, **k): pass
+sh = Shell(happ)
+for tid in ("cleanup", "automation"):
+    happ.tools[tid].built = False; happ.tools[tid].frame = None; happ.tools[tid].active = None
+sh.show_tool("history")
+check("show_tool('history') opens the Automation hub on that tab", sh.current is ah and ah.active.id == "history", (sh.current, ah.active))
+sh.show_tool("workflows")
+check("... and a second old id switches tab without rebuilding the hub", sh.current is ah and ah.active.id == "workflows")
+sent = []
+ch.member("duplicates").accept_files = lambda p: sent.append(p)
+sh.send_to("duplicates", ["/d/one.pdf"])
+check("send_to('duplicates', files) opens Clean-up on Duplicates and hands the files over", sh.current is ch and ch.active.id == "duplicates" and sent == [["/d/one.pdf"]], (sh.current, sent))
+sh2 = Shell(happ); sh2.tools = {"cleanup": ch}
+check("app.tool() finds hubs, their tabs, and nothing else", sh2.tool("cleanup") is ch and sh2.tool("scan_cleaner") is ch.member("scan_cleaner") and sh2.tool("nope") is None)
+happ.settings.set("window.tool_order", ["home", "duplicates", "visa", "scan_cleaner", "workflows", "history"])
+happ.settings.set("window.hidden_tools", ["duplicates", "scan_cleaner", "workflows"])
+happ.settings.set("window.last_tool", "scan_cleaner")
+sh._migrate_tool_ids()
+check("saved order: tabs become their hub, once, in place", happ.settings.get("window.tool_order") == ["home", "cleanup", "visa", "automation"], happ.settings.get("window.tool_order"))
+check("a hub is hidden only when all its old tools were hidden", happ.settings.get("window.hidden_tools") == ["cleanup"], happ.settings.get("window.hidden_tools"))
+check("last tool maps to the hub", happ.settings.get("window.last_tool") == "cleanup")
+check("no job raised an error (hubs)", not SyncJobs.errors, SyncJobs.errors)
+ap.on_close()
 
 print()
 bad = [n for n, ok in results if not ok]

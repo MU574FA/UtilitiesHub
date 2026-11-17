@@ -71,6 +71,8 @@ class FakeApp:
     set_tool_hidden = appmod.App.set_tool_hidden
     move_tool = appmod.App.move_tool
     show_all_tools = appmod.App.show_all_tools
+    iter_tools = appmod.App.iter_tools
+    send_to_hub = None
 
     def __init__(self, tmp: Path, tool_ids=None):
         self.settings = Settings(tmp / "settings.json")
@@ -85,6 +87,8 @@ class FakeApp:
         self.tools = {}
         for c in self.tool_classes:
             self.tools[c.id] = c(self)
+        self.aliases = {m.id: t.id for t in self.tools.values() for m in t.members() if m is not t}
+        self.current = None
 
     def on_log(self, fn): self._log_listeners.append(fn)
     def log(self, message, level="info", tool=""):

@@ -40,6 +40,7 @@ class Tool:
         self.settings = app.settings
         self.frame: ttk.Frame | None = None
         self.built = False
+        self.host: Tool | None = None         # set when this tool lives as a tab inside a HubTool
         self.log_ = logging.getLogger(f"tool.{self.id}")
 
     # ------------------------------------------------------------------ declarations
@@ -127,6 +128,20 @@ class Tool:
 
     def auto_summary(self) -> str:
         return ""
+
+    # ------------------------------------------------------------------ hub support
+    def members(self) -> list["Tool"]:
+        """The real tools behind this entry (a HubTool returns its tabs, any other tool returns itself)."""
+        return [self]
+
+    def is_current(self) -> bool:
+        """True while this tool is on screen - also when it is the selected tab of a hub."""
+        cur = self.app.current
+        return cur is self or (self.host is not None and cur is self.host and getattr(self.host, "active", None) is self)
+
+    def focus(self) -> None:
+        """Bring this tool to the front (for a tab: open the hub and select the tab)."""
+        self.app.show_tool(self.id)
 
     # ------------------------------------------------------------------ helpers
     def log(self, message: str, level: str = "info") -> None:

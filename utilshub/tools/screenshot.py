@@ -449,7 +449,7 @@ class Screenshot(Tool):
         self.app.root.bind("<Control-v>", self._ctrl_v, add="+")
 
     def _ctrl_v(self, e) -> None:
-        if self.app.current is self and not isinstance(e.widget, (tk.Entry, ttk.Entry, tk.Text, ttk.Combobox)):
+        if self.is_current() and not isinstance(e.widget, (tk.Entry, ttk.Entry, tk.Text, ttk.Combobox)):
             self.paste_now()
 
     def _rebuild_table(self) -> None:

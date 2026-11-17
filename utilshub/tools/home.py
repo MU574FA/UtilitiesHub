@@ -13,7 +13,7 @@ from ..ui.dnd import DropZone
 from ..ui.widgets import LogView
 from .base import Tool
 
-_NOT_CARDS = ("home", "autopilot", "history")
+_NOT_CARDS = ("home",)
 
 
 def _tool_manager_page(parent, app) -> None:

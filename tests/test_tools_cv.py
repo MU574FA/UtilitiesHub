@@ -92,7 +92,7 @@ def test_cv_sorter_watcher(app):
 def test_screenshot(app):
     from PIL import Image
     app.show_tool("screenshot")
-    t = app.tools["screenshot"]
+    t = app.tool("screenshot")
     from utilshub.tools.screenshot import Capture
     cap = Capture(Image.new("RGB", (50, 50), "white"), "test")
     cap.text = "Call me on +964 770 123 4567 or mail a.b@example.org"

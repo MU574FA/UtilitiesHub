@@ -63,7 +63,7 @@ def test_name_matcher_and_sync(app, tmp_path):
             wb.active.append(r)
         wb.save(p)
     app.show_tool("name_matcher")
-    nm = app.tools["name_matcher"]
+    nm = app.tool("name_matcher")
     nm.pa.path.set(str(a)); nm.pb.path.set(str(b))
     nm.pa.load(); nm.pb.load()
     nm.compare(); pump(app)
@@ -81,13 +81,13 @@ def test_name_matcher_and_sync(app, tmp_path):
     txt_file = tmp_path / "sample.txt"
     txt_file.write_text("P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<\nL898902C36UTO7408122F1204159ZE184226B<<<<<10\n", encoding="utf-8")
     app.show_tool("ocr_match")
-    om = app.tools["ocr_match"]
+    om = app.tool("ocr_match")
     om.add_paths([str(txt_file)]); pump(app)
     om.patterns.delete("1.0", "end"); om.patterns.insert("1.0", "ERIKSSON")
     om.find(); pump(app)
     assert len(om.results.all_ids()) == 1
     app.show_tool("passport")
-    pt = app.tools["passport"]
+    pt = app.tool("passport")
     pt.add_paths([str(txt_file)]); pump(app)
     assert len(pt.rows) == 1 and next(iter(pt.rows.values()))["surname"] == "ERIKSSON"
     nm.choose  # callable
@@ -96,7 +96,7 @@ def test_name_matcher_and_sync(app, tmp_path):
     for r in [["Name", "Phone"], ["ahmed ali", "11"], ["John Smith", "2"], ["New Guy", "9"]]:
         wb.active.append(r)
     wb.save(b)
-    ss = app.tools["sheet_sync"]
+    ss = app.tool("sheet_sync")
     ss.old.path.set(str(a)); ss.new.path.set(str(b))
     ss.old.load(); ss.new.load()
     ss.key.set("Name")

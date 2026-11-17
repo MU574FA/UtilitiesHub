@@ -18,6 +18,23 @@
 4. Optional: `accept_files`, `commands()` (palette), `can_automate/start_auto/stop_auto/auto_running/auto_summary`, `stats()`.
 5. Add the module name to `TOOL_MODULES` in `app.py`.
 
+## Hubs (tools as tabs)
+`tools/hub.py` defines `HubTool`: one sidebar entry that holds several ordinary tools as tabs. The four hubs are
+`cleanup.py`, `extract.py`, `match.py` and `automation.py`; each only lists `MEMBERS = ((module, class, tab label), ...)`.
+Member tools are **unchanged** `Tool` subclasses and are *not* in `TOOL_MODULES`: they keep their id, their `<id>.*`
+settings and journal entries. The hub registers their options/pages, builds a tab on first open, forwards
+`on_show/on_hide/on_close`, `commands()`, `keys()` (only the open tab's), `stats()`, `badge()` and automation, and adds the
+shared files bar. A member that cannot be imported is skipped (logged), so one missing library never removes the others.
+
+For the shell: `App.aliases` maps a member id to its hub, so `show_tool("passport")` and `send_to("duplicates", files)`
+open the hub on that tab; `App.tool(id)` finds hubs *and* tabs; `App.iter_tools()` unpacks hubs (automation, switchboard).
+Inside a tab use `self.is_current()` instead of `self.app.current is self`. Old saved order / hidden / last-tool ids are
+migrated to their hub on start (`App._migrate_tool_ids`).
+
+`core/triggers.py` (pure logic, tested in `tests/test_triggers.py`) is the engine behind Autopilot's folder triggers:
+`Trigger` + `TriggerStore` (`triggers.json`) + `TriggerRunner` (one `FolderWatcher` per trigger, handles a file once,
+pauses a trigger that fires more than `autopilot.max_per_minute` times).
+
 ## Tool order and visibility
 `core/toolorder.py` holds the rules (pure logic): Home is pinned first and cannot be hidden; a tool the user never placed
 (added by an update) lands after its default predecessor. `App.sorted_tools()/visible_tools()/hidden_tools()` apply them;

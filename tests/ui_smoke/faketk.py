@@ -377,6 +377,47 @@ def _generic(name):
     return type(name, (Widget,), {})
 
 
+class Notebook(Widget):
+    """ttk.Notebook: tabs, selection and the <<NotebookTabChanged>> event (fired on every real change, like Tk)."""
+
+    def __init__(self, master=None, *a, **kw):
+        super().__init__(master, *a, **kw)
+        self._tabs, self._sel = [], None
+
+    def add(self, child, **kw):
+        self._tabs.append((child, kw))
+        if self._sel is None:
+            self._sel = 0
+
+    def tabs(self):
+        return [c for c, _ in self._tabs]
+
+    def tab(self, which, option=None):
+        child, kw = self._tabs[self.index(which)]
+        return kw.get(option) if option else dict(kw)
+
+    def index(self, which):
+        if which == "end":
+            return len(self._tabs)
+        if isinstance(which, int):
+            return which
+        for i, (c, _) in enumerate(self._tabs):
+            if c is which:
+                return i
+        raise TclError(f"unknown tab {which!r}")
+
+    def select(self, which=None):
+        if which is None:
+            return self._tabs[self._sel][0] if self._sel is not None and self._tabs else ""
+        idx = self.index(which)
+        if not 0 <= idx < len(self._tabs):
+            raise TclError("Slave index out of bounds")
+        changed, self._sel = idx != self._sel, idx
+        if changed:
+            for fn in self._bindings.get("<<NotebookTabChanged>>", []):
+                fn(None)
+
+
 class StubModule(types.ModuleType):
     def __getattr__(self, name):
         if name.startswith("__"):
@@ -399,7 +440,7 @@ def install():
     ttk = StubModule("tkinter.ttk")
     for n, c in dict(Treeview=Treeview, Combobox=Combobox, Entry=Entry, Frame=Widget, Label=Widget, Button=Widget,
                      Scrollbar=Widget, Checkbutton=Widget, Radiobutton=Widget, Scale=Widget, Spinbox=Widget, LabelFrame=Widget,
-                     Panedwindow=Paned, PanedWindow=Paned, Notebook=Widget, Progressbar=Widget, Separator=Widget,
+                     Panedwindow=Paned, PanedWindow=Paned, Notebook=Notebook, Progressbar=Widget, Separator=Widget,
                      Style=Widget, Sizegrip=Widget).items():
         setattr(ttk, n, c)
     fd = StubModule("tkinter.filedialog")
