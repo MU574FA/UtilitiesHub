@@ -1,4 +1,4 @@
-"""How a feature combines the classic way ("Rules": regex, keywords, Tesseract) with the AI (local Ollama).
+"""How a feature combines the classic way ("Rules": regex, keywords, Tesseract) with the AI (Ollama, OpenAI-compatible or Anthropic).
 
 Every AI-capable feature has one of four modes:
 

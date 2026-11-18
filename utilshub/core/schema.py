@@ -6,7 +6,7 @@ Every tool declares its settings as a list of `Opt`.  The same declaration gives
   * help text, grouping and "advanced" flagging.
 
 Kinds understood by the generic settings page:
-  bool int float str text choice folder file append(a CSV to create / add to) color font list(of str) strings
+  bool int float str secret(masked, left out of exports) text choice folder file append(a CSV to create / add to) color font list(of str) strings
   record (a RecordEditor; `editor` names it)   custom (tool builds the widget itself)
 """
 from __future__ import annotations

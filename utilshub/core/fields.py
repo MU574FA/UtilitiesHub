@@ -9,7 +9,7 @@ A `FieldSpec` says "look for X and call it <key>".  `kind` picks the detector:
     map                                    filled from ANOTHER field: "Muhasan = general worker, re:^gen.*labou?rer"
     ai                                     described in plain words (`ai_hint`), filled by the local AI only
 
-Every searched field can also use the local AI (Ollama): `FieldSpec.ai_mode` is inherit | rules | ai | rules_ai |
+Every searched field can also use the AI (Ollama, OpenAI-compatible or Anthropic): `FieldSpec.ai_mode` is inherit | rules | ai | rules_ai |
 ai_rules (see core/aimode.py) and `ExtractContext.fields_mode` is the default for "inherit".  AI answers are checked
 (email / phone shape, value must really appear in the document) and reported through `FieldEngine.extract_detailed`
 so the UI can mark "AI-filled" values for review.

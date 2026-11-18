@@ -82,7 +82,7 @@ def fields_editor(parent, app, value, on_change, height: int = 9):
              help="e.g. %d-%b-%Y → 10-Oct-2026"),
         Prop("ai_mode", "AI for this field", "choice", MODE_CHOICES_INHERIT,
              visible_if=lambda d: d.get("kind") not in ("today", "manual", "map"),
-             help="Needs Settings > AI (Ollama) switched on. 'Use the default' follows Settings > AI > Filling fields. "
+             help="Needs Settings > AI switched on. 'Use the default' follows Settings > AI > Filling fields. "
                   "Rules only = AI off for this field. Kind 'AI-described' has no rules, so it needs an AI mode."),
         Prop("ai_hint", "Tell the AI what to look for", "text", rows=2, width=52,
              visible_if=lambda d: d.get("kind") not in ("today", "manual", "map"),

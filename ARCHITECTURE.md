@@ -49,9 +49,19 @@ looking identical. `core/scanclean.py` (Scan Cleaner): `analyse_image` finds wha
 overrides (None = automatic), `process_page` / `clean_file` fix it. Batches of file operations are tagged with
 `fileops.batch_note()` so `Journal.undo_batch()` can undo them in one go.
 
-## Local AI (Ollama)
-`core/llm.py` is the only code that talks to Ollama (standard library only; `LlmConfig`, `ping`, `ask_text`, `ask_json`,
-`ocr_image`; raises `LlmUnavailable` / `LlmError`, remembers an unreachable server for a few seconds). `core/aitasks.py`
+## AI (Ollama / OpenAI-compatible / Anthropic)
+`core/llm.py` is the only code that talks to a model (standard library only). `Profile` = one connection (provider, address,
+key, model); `LlmConfig` = the default connection + optional per-task overrides (`slots`: `reasoning`, `extraction`,
+`classify`, `vision`, settings `ai.<slot>.provider|host|api_key|model`). `cfg.profile(task)` resolves a slot (a slot never
+inherits the default API key for a different address); `cfg.fingerprint(task)` (provider|address|model, no key) is what
+caches must key on. Three adapters (`_chat_ollama`, `_chat_openai`, `_chat_anthropic`) translate the internal Ollama-shaped
+messages (`images` = base64 JPEG) and structured output (`json_schema` -> Ollama `format` / OpenAI `response_format` /
+a JSON instruction for Anthropic); an OpenAI-style server that refuses `temperature` or `json_schema` is retried without
+it and remembered per (address, model). `ask_text/ask_json(..., task=slot)`, `ocr_image` (vision slot), `ping` (checks every
+connection), `list_models`; raises `LlmUnavailable` (off / unreachable / bad key / model missing / cloud not allowed) or
+`LlmError`, remembers an unreachable server for a few seconds, retries 429/503. `ai.allow_cloud` gates every non-local
+address before any traffic. To add a provider: one adapter + one entry in `PROVIDERS` / `_ADAPTERS`.
+`core/aitasks.py`
 holds the prompts and checks every answer (allowed ids only, clamped confidence, lists of strings); documents are sent
 between `<document>` tags as data. `core/aimode.py` is the one place that combines the classic way with the AI:
 `mode_for(settings, feature)` (master switch `ai.enabled` wins, then `ai.<feature>_mode`, features listed in
@@ -66,7 +76,7 @@ To add an AI feature: add `ai.<feature>_mode` (+ entry in `aimode.FEATURES`), wr
 wrap both methods in `aimode.run`, and mark AI-made values (`source == "ai"`) so the UI can ask for review.
 
 ## Tests
-`tests/test_ai.py` (fake Ollama in `tests/fake_ollama.py`) and `tests/ui_smoke/ai_docpacker.py` cover the AI paths offline.
+`tests/test_ai.py` (fake Ollama in `tests/fake_ollama.py`), `tests/test_llm_providers.py` (fake OpenAI/Anthropic in `tests/fake_providers.py`) and `tests/ui_smoke/ai_docpacker.py` cover the AI paths offline.
 `tests/test_similarity.py`, `test_scanclean.py`, `test_toolorder.py` need no display. `tests/test_ui_smoke.py` runs
 `tests/ui_smoke/run.py` in a subprocess with a fake tkinter (`faketk.py`, strict about unknown methods) to check what the
 Home, tool manager, Duplicate Finder and Scan Cleaner screens *do*; it cannot judge layout, so still look at them once.

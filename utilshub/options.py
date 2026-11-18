@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .core.aimode import MODE_CHOICES
+from .core.llm import PROVIDER_CHOICES
 from .core.schema import Opt, Page
 
 CV_JOB_TITLES = [
@@ -111,24 +112,64 @@ AUTOMATION = [
 ]
 
 
-_PRIV = "Everything runs through Ollama on your own computer - nothing is sent to the internet."
+_PRIV = ("With Ollama (or LM Studio) on this computer nothing leaves it. A cloud provider (OpenAI, Anthropic, Gemini ...) "
+         "receives the document text / pictures it is asked about - that is only allowed when 'Allow cloud AI' is ticked.")
 _MODE_HELP = ("Rules only = the classic way (regex, keywords, Tesseract). AI only = the model decides. "
               "'Rules first' / 'AI first' = the second method runs only when the first finds nothing or fails.")
+_SLOT_HELP = {"reasoning": "yes/no questions, name comparison, 'is this the same person'",
+              "extraction": "filling fields, short answers, suggested file names",
+              "classify": "which document type is this file / page, which category fits (zero-shot classification)",
+              "vision": "reading pictures: AI OCR, stamps, signatures, scanned pages without text"}
+
+
+def _slot_opts() -> list[Opt]:
+    """Per-task overrides: leave a box empty to inherit the default connection above."""
+    out: list[Opt] = []
+    for name, title in (("reasoning", "Reasoning"), ("extraction", "Extraction"), ("classify", "Classification"),
+                        ("vision", "Vision")):
+        sec = f"{title} model (optional override)"
+        out += [
+            Opt(f"ai.{name}.provider", "", f"{title}: provider", "choice", section=sec, advanced=True,
+                choices=[("", "Same as the default")] + PROVIDER_CHOICES,
+                help=f"Used for: {_SLOT_HELP[name]}. Empty = the default connection above."),
+            Opt(f"ai.{name}.host", "", f"{title}: address", "str", section=sec, advanced=True,
+                help="Empty = the default address (or the provider's own address when you pick another provider)."),
+            Opt(f"ai.{name}.api_key", "", f"{title}: API key", "secret", section=sec, advanced=True,
+                help="Empty = the default key (same address only) or the OPENAI_API_KEY / ANTHROPIC_API_KEY environment variable."),
+            Opt(f"ai.{name}.model", "", f"{title}: model", "str", section=sec, advanced=True,
+                help="Empty = the default " + ("vision" if name == "vision" else "text") + " model."),
+        ]
+    return out
+
 
 AI = [
-    Opt("ai.enabled", False, "Enable AI (local Ollama)", "bool", section="Master switch",
+    Opt("ai.enabled", False, "Enable AI", "bool", section="Master switch",
         help="Off = every feature behaves exactly as before AI existed, whatever the modes below say. " + _PRIV),
-    Opt("ai.host", "http://localhost:11434", "Ollama address", "str", section="Ollama",
-        help="Default for Ollama on this computer. Use 'Test connection' below after changing anything here."),
-    Opt("ai.text_model", "llama3.2", "Text model", "str", section="Ollama",
-        help="Reads text: fields, recognition, questions. e.g. llama3.2, qwen2.5, llama3.1 (ollama pull llama3.2)"),
-    Opt("ai.vision_model", "qwen2.5vl", "Vision model", "str", section="Ollama",
-        help="Reads pictures (AI OCR, signatures and stamps). e.g. qwen2.5vl, llama3.2-vision, minicpm-v"),
-    Opt("ai.timeout", 120, "Wait for an answer at most (seconds)", "int", min=10, max=1800, section="Ollama"),
-    Opt("ai.max_chars", 12000, "Characters of a document sent to the model", "int", min=1000, max=100000, section="Ollama",
-        advanced=True, help="Longer documents are shortened (beginning and end are kept)."),
-    Opt("ai.keep_alive", "5m", "Keep the model in memory for", "str", section="Ollama", advanced=True,
-        help="e.g. 5m, 30m, 0 (unload at once)"),
+    Opt("ai.allow_cloud", False, "Allow cloud AI (documents are sent to the provider)", "bool", section="Master switch",
+        help="Needed for any server outside this computer / local network (OpenAI, Anthropic, Gemini, Groq, OpenRouter ...). "
+             "Leave off to keep everything local. " + _PRIV),
+    Opt("ai.provider", "ollama", "Provider", "choice", choices=PROVIDER_CHOICES, section="Default connection",
+        help="Ollama needs only an address + model name. OpenAI-compatible and Anthropic also need an API key. "
+             "Gemini: choose OpenAI-compatible with https://generativelanguage.googleapis.com/v1beta/openai"),
+    Opt("ai.host", "http://localhost:11434", "Address (URL)", "str", section="Default connection",
+        help="Ollama: http://localhost:11434.  OpenAI: https://api.openai.com/v1 (also used when this is left at the Ollama "
+             "address).  Groq: https://api.groq.com/openai/v1.  OpenRouter: https://openrouter.ai/api/v1.  "
+             "LM Studio: http://localhost:1234/v1.  Anthropic: https://api.anthropic.com.  Use 'Test connection' below."),
+    Opt("ai.api_key", "", "API key", "secret", section="Default connection",
+        help="Not needed for Ollama / LM Studio. Empty = read the OPENAI_API_KEY / ANTHROPIC_API_KEY environment variable. "
+             "The key is saved in this program's settings file (and left out of 'Export settings')."),
+    Opt("ai.text_model", "llama3.2", "Text model", "str", section="Default connection",
+        help="Reads text: fields, recognition, questions. e.g. llama3.2, qwen2.5 (Ollama), gpt-4o-mini, claude-haiku-4-5, "
+             "gemini-2.0-flash"),
+    Opt("ai.vision_model", "qwen2.5vl", "Vision model", "str", section="Default connection",
+        help="Reads pictures (AI OCR, signatures and stamps). e.g. qwen2.5vl, llama3.2-vision (Ollama), gpt-4o, "
+             "claude-sonnet-4-5, gemini-2.0-flash"),
+    Opt("ai.timeout", 120, "Wait for an answer at most (seconds)", "int", min=10, max=1800, section="Default connection"),
+    Opt("ai.max_chars", 12000, "Characters of a document sent to the model", "int", min=1000, max=100000, section="Default connection",
+        advanced=True, help="Longer documents are shortened (beginning and end are kept). Smaller = cheaper with cloud models."),
+    Opt("ai.keep_alive", "5m", "Ollama: keep the model in memory for", "str", section="Default connection", advanced=True,
+        help="e.g. 5m, 30m, 0 (unload at once). Ignored by other providers."),
+    *_slot_opts(),
     Opt("ai.ocr_mode", "rules", "Reading scans (OCR)", "choice", choices=MODE_CHOICES, section="Where AI is used",
         help="Rules = Tesseract. Used by every tool that reads scans (CV Sorter, Screenshot, DocPacker, workflows). " + _MODE_HELP),
     Opt("ai.fields_mode", "rules", "Filling fields (default)", "choice", choices=MODE_CHOICES, section="Where AI is used",
@@ -173,7 +214,7 @@ def shared_pages() -> list[Page]:
         Page("match", "Matching & word lists", "🎯", 5, "Fuzzy matching, known names and the word lists the extractors use.",
              opts=MATCH),
         Page("auto", "Automation", "🤖", 6, "Autopilot: watch folders and process files without you.", opts=AUTOMATION),
-        Page("ai", "AI (Ollama)", "✨", 7, "Optional offline AI: read scans, fill fields, recognise documents. "
+        Page("ai", "AI", "✨", 7, "Optional AI (Ollama, OpenAI-compatible APIs, Anthropic): read scans, fill fields, recognise documents. "
              "Choose per feature: Rules only, AI only, or one then the other.", opts=AI, builder=_ai_builder),
     ]
 

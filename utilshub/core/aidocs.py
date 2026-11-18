@@ -222,9 +222,10 @@ def recognise(types, info, filename: str, threshold: float, ai: AiContext | None
         if not cands:
             return UNASSIGNED, 0.0, ""
         text = info.text or ""
-        use_pic = not text.strip() and bool(ai.llm and ai.llm.vision_model)
+        use_pic = not text.strip() and bool(ai.llm and ai.llm.model_for("vision", True))
         key = ("doc", _digest(info.path, info.hash, len(text), _digest(text), filename, info.pages, _types_sig(cands),
-                              ai.llm.text_model, ai.llm.vision_model if use_pic else "", ai.min_confidence))
+                              ai.llm.fingerprint("classify"), ai.llm.fingerprint("vision", True) if use_pic else "",
+                              ai.min_confidence))
 
         def compute():
             img = page_image(info) if use_pic else None
@@ -277,8 +278,8 @@ def page_labels(types, info, threshold: float, ai: AiContext | None, blocking: b
     cands = [t for t in types if t.enabled and getattr(t, "use_ai", True)]
 
     def ask() -> list[str]:
-        key = ("pages", _digest(info.path, info.hash, _digest(*info.page_texts), _types_sig(cands), ai.llm.text_model,
-                                ai.max_pages))
+        key = ("pages", _digest(info.path, info.hash, _digest(*info.page_texts), _types_sig(cands),
+                                ai.llm.fingerprint("classify"), ai.max_pages))
         got = ai_call(ai, key, lambda: aitasks.classify_pages(ai.llm, info.page_texts, _catalog(cands), ai.max_pages),
                       blocking)
         return [x or UNASSIGNED for x in got]
@@ -331,7 +332,8 @@ def run_ai_check(ch, info, ctx) -> tuple[str, str]:
         return "manual", question
     use_pic = bool(getattr(ch, "use_image", False))
     key = ("check", _digest(info.path, info.hash, len(info.text), _digest(info.text), question, use_pic,
-                            tuple(sorted(_facts(ctx).items())), ai.llm.text_model, ai.llm.vision_model if use_pic else ""))
+                            tuple(sorted(_facts(ctx).items())), ai.llm.fingerprint("reasoning"),
+                            ai.llm.fingerprint("vision", True) if use_pic else ""))
 
     def compute():
         img = page_image(info) if use_pic else None
@@ -365,7 +367,7 @@ def _name_verdict(ctx, info, name: str, what: str, rules_fn) -> tuple[bool | Non
         return rules_fn(), "", RULES
 
     def ask():
-        key = ("name", _digest(info.path, info.hash, _digest(info.text), name, what, ai.llm.text_model))
+        key = ("name", _digest(info.path, info.hash, _digest(info.text), name, what, ai.llm.fingerprint("reasoning")))
         return ai_call(ai, key, lambda: aitasks.name_matches_document(ai.llm, name, info.text))
 
     why_box = {"why": ""}
@@ -398,7 +400,7 @@ def names_same(ctx, a: str, b: str, rules_fn) -> tuple[bool, str]:
     why_box = {"why": ""}
 
     def ask():
-        key = ("same", _digest(a, b, ai.llm.text_model))
+        key = ("same", _digest(a, b, ai.llm.fingerprint("reasoning")))
         verdict, why = ai_call(ai, key, lambda: aitasks.same_person(ai.llm, a, b))
         why_box["why"] = why
         return verdict

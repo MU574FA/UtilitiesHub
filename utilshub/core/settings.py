@@ -227,7 +227,11 @@ class Settings:
         self.save()
 
     def export_to(self, path: Path, prefixes: Iterable[str] = ()) -> None:
-        values = {k: v for k, v in self._values.items() if not prefixes or any(k.startswith(p) for p in prefixes)}
+        def secret(key: str) -> bool:                      # API keys never go into an exported file
+            o = self.opt(key)
+            return bool(o and o.kind == "secret")
+        values = {k: v for k, v in self._values.items()
+                  if (not prefixes or any(k.startswith(p) for p in prefixes)) and not secret(k)}
         Path(path).write_text(json.dumps(values, indent=2, ensure_ascii=False), encoding="utf-8")
 
     def import_from(self, path: Path, prefixes: Iterable[str] = ()) -> int:

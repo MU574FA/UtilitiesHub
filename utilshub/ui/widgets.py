@@ -454,8 +454,11 @@ class DataTable(ttk.Frame):
 # --------------------------------------------------------------------------- window tools / dialogs
 def attach_window_controls(top: tk.Toplevel, bar: tk.Misc | None = None, title: str | None = None,
                            close_cmd: Callable[[], None] | None = None) -> ttk.Frame:
-    """Add minimize, maximize/restore, and close window tools to a top-level window or custom bar.
-    
+    """Add minimize, maximize/restore, and close buttons to a *borderless* (overrideredirect) window.
+
+    Only for windows that have no native title bar (e.g. the command palette). Normal windows already get
+    the OS title-bar controls - adding these as well would show two sets of window controls.
+
     If `bar` is not provided, a top header bar is created and packed at the top of `top`.
     """
     if bar is None:
@@ -541,9 +544,7 @@ def ask_text(parent: tk.Misc, title: str, prompt: str, initial: str = "", multil
     """Small modal text prompt. Returns None when cancelled."""
     top = tk.Toplevel(parent)
     top.title(title)
-    top.transient(parent.winfo_toplevel())
     top.resizable(False, False)
-    attach_window_controls(top, title=title)
     frame = ttk.Frame(top, padding=14)
     frame.pack(fill="both", expand=True)
     ttk.Label(frame, text=prompt, wraplength=420, justify="left").pack(anchor="w", pady=(0, 6))
@@ -583,12 +584,10 @@ def modal(parent: tk.Misc, title: str, width: int = 520, height: int = 0) -> tup
     """A themed modal window; returns (window, content frame)."""
     top = tk.Toplevel(parent)
     top.title(title)
-    top.transient(parent.winfo_toplevel())
     app = app_of(parent)
     if app:
         top.configure(background=app.theme.p["bg"])
         top.app = app
-    attach_window_controls(top, title=title)
     frame = ttk.Frame(top, padding=14)
     frame.pack(fill="both", expand=True)
     top.update_idletasks()

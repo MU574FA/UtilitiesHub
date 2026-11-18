@@ -9,7 +9,7 @@ from typing import Any
 from ..core.schema import Opt, Page
 from .editors import EDITORS
 from .records import StringListEditor
-from .widgets import FolderEntry, ScrollFrame, Tooltip, attach_window_controls, confirm, error, info, style_text
+from .widgets import FolderEntry, ScrollFrame, Tooltip, confirm, error, info, style_text
 
 
 class OptionPage(ttk.Frame):
@@ -109,6 +109,14 @@ class OptionPage(ttk.Frame):
             ttk.Combobox(ctl, textvariable=var, values=fams, width=32).pack(side="left")
             var.trace_add("write", lambda *_: self._commit(opt, var.get().strip()))
             self._vars[opt.key] = var
+        elif k == "secret":                                   # API key: shown as dots, with a Show/Hide toggle
+            var = tk.StringVar(value=str(value))
+            ent = ttk.Entry(ctl, textvariable=var, width=opt.width or 46, show="•")
+            ent.pack(side="left", fill="x", expand=wide)
+            ttk.Button(ctl, text="Show", style="Tiny.TButton",
+                       command=lambda e=ent: e.configure(show="" if e.cget("show") else "•")).pack(side="left", padx=4)
+            var.trace_add("write", lambda *_: self._commit(opt, var.get().strip()))
+            self._vars[opt.key] = var
         elif k == "text":
             t = tk.Text(ctl, height=4, wrap="word")
             style_text(self, t)
@@ -192,7 +200,6 @@ class SettingsWindow(tk.Toplevel):
         self.app = app
         self.title("Settings")
         self.configure(background=app.theme.p["bg"])
-        self.transient(app.root)
         w, h = 980, 700
         self.geometry(f"{w}x{h}+{app.root.winfo_rootx() + 40}+{app.root.winfo_rooty() + 30}")
         self.minsize(760, 480)
@@ -203,7 +210,6 @@ class SettingsWindow(tk.Toplevel):
         top = ttk.Frame(self, padding=(10, 8))
         top.pack(fill="x")
         ttk.Label(top, text="Settings", style="H2.TLabel").pack(side="left")
-        attach_window_controls(self, top)
         ttk.Checkbutton(top, text="Show advanced options", variable=self.show_advanced,
                         command=lambda: self.show(self.current, force=True)).pack(side="right", padx=(0, 10))
         self.search = tk.StringVar()

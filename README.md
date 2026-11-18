@@ -17,7 +17,7 @@ A modern, offline-first desktop productivity suite built with Python and Tkinter
 - **🏠 Customisable Home**: Drag tools into your own order, hide the ones you do not use and bring them back with one click (Settings > Home & tools, or right-click a tool in the sidebar / on Home).
 - **⏪ Journal & Undo**: Full operational journaling allowing one-click rollback of all file renames, copies, and moves (Automation > History & Undo).
 - **🗂️ Tabs with a shared files bar**: Related tools live together. Drop files once, then send the same files to any tab of that tool with one click. The last tab is remembered; **Alt+←/→** switches tabs; the command palette (Ctrl+K) still finds every tab's commands.
-- **✨ Optional offline AI (Ollama)**: Read scans with a local vision model, fill fields in plain words, recognise and split documents, answer checklist questions, compare names across spellings and fill the DocPacker cover page - all through your own Ollama, all switchable, with a **Rules / AI / Rules→AI / AI→Rules** mode for every feature. See [AI (optional)](#-ai-optional-offline-with-ollama).
+- **✨ Optional offline AI (Ollama)**: Read scans with a local vision model, fill fields in plain words, recognise and split documents, answer checklist questions, compare names across spellings and fill the DocPacker cover page - all through your own Ollama, all switchable, with a **Rules / AI / Rules→AI / AI→Rules** mode for every feature. See [AI (optional)](#-ai-optional-ollama-any-openai-compatible-api-or-anthropic).
 
 ---
 
@@ -112,12 +112,19 @@ Set the `UTILSHUB_HOME` environment variable only if you want the data somewhere
 
 ---
 
-## ✨ AI (optional, offline with Ollama)
+## ✨ AI (optional: Ollama, any OpenAI-compatible API, or Anthropic)
 
-AI is **off by default**; with it off the program behaves exactly as before. Everything runs through [Ollama](https://ollama.com) on your own computer (no cloud, no API keys).
+AI is **off by default**; with it off the program behaves exactly as before. You choose where the model runs:
 
-1. Install Ollama, then pull a text model and a vision model, e.g. `ollama pull llama3.2` and `ollama pull qwen2.5vl`.
-2. Open **Settings > AI (Ollama)**, tick **Enable AI**, press **Test connection**.
+| Provider | You enter | Examples |
+|---|---|---|
+| **Ollama** (local) | address + model name | `http://localhost:11434`, `llama3.2`, `qwen2.5vl` |
+| **OpenAI-compatible API** | address + API key + model name | OpenAI, Groq, OpenRouter, Together, Mistral, DeepSeek, Google Gemini (`https://generativelanguage.googleapis.com/v1beta/openai`), LM Studio / vLLM |
+| **Anthropic** | API key + model name | Claude models |
+
+1. Local: install [Ollama](https://ollama.com), then `ollama pull llama3.2` and `ollama pull qwen2.5vl`. Cloud: have an API key ready (or set `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`).
+2. Open **Settings > AI**, tick **Enable AI**, pick the **Provider**, fill address / key / models, press **Test connection**. A server outside your computer / local network is used only when **Allow cloud AI** is ticked - the text and pictures of your documents are then sent to that provider.
+   - **Per-task models:** under *optional override* every capability can use its own provider / address / key / model: **Reasoning** (yes/no questions, name checks), **Extraction** (fields, short answers), **Classification** (document types, categories) and **Vision** (AI OCR, scans). Empty boxes inherit the default connection - e.g. a small local model for classification and a Claude or GPT model for vision.
 3. Choose a mode for each feature. The classic way is called **Rules** (regex, keywords, Tesseract):
 
 | Mode | Meaning |
@@ -137,7 +144,7 @@ AI is **off by default**; with it off the program behaves exactly as before. Eve
 | Cover-page values (DocPacker) | **✨ Fill from documents** (or automatically after reading) fills *empty* name, surname and custom boxes. |
 | Workflows | Bricks **AI read the text**, **AI grab a value**, **AI sort into categories**, **AI rename**; each has its own method. Grabbed values work as rename tokens, e.g. `{category}`. |
 
-**Safety:** AI values are only accepted if they really appear in the document (switchable), have the right shape (e-mail, phone ...) and are always marked ✨ for you to check: CV Sorter sends such files to review, DocPacker lists them, never overwrites what you typed and asks before building a package from AI-recognised documents. Optional *cross-check* runs both methods and flags disagreements. If Ollama is not running the Rules are used (or, in *AI only*, the field stays empty with a clear message).
+**Safety:** AI values are only accepted if they really appear in the document (switchable), have the right shape (e-mail, phone ...) and are always marked ✨ for you to check: CV Sorter sends such files to review, DocPacker lists them, never overwrites what you typed and asks before building a package from AI-recognised documents. Optional *cross-check* runs both methods and flags disagreements. If the AI server is not reachable (or the key is rejected) the Rules are used (or, in *AI only*, the field stays empty with a clear message).
 
 ---
 
@@ -148,7 +155,7 @@ To run the test suite:
 pip install pytest
 pytest
 ```
-The AI tests (`tests/test_ai.py`, `tests/test_ai_ui.py`) are fully offline: a fake Ollama server (`tests/fake_ollama.py`) answers every request, so no model is needed.
+The AI tests (`tests/test_ai.py`, `tests/test_ai_ui.py`) are fully offline: a fake Ollama server (`tests/fake_ollama.py`) answers every request, so no model is needed; `tests/test_llm_providers.py` does the same for the OpenAI-compatible and Anthropic providers and the per-task models (`tests/fake_providers.py`).
 
 ---
 
@@ -156,7 +163,7 @@ The AI tests (`tests/test_ai.py`, `tests/test_ai_ui.py`) are fully offline: a fa
 
 - UtilsHub runs **100% locally on your machine**.
 - No documents, images, or extracted text are uploaded to any cloud services.
-- The optional AI features only talk to the Ollama address you set (default `http://localhost:11434`, i.e. this computer) and are off until you enable them. If you point it at another machine, the text of your documents is sent there.
+- The optional AI features are off until you enable them and only talk to the addresses you set (default Ollama on `http://localhost:11434`, i.e. this computer). Anything outside this computer / local network (cloud APIs) is refused unless **Allow cloud AI** is ticked; then the text and pictures of your documents are sent to that provider. API keys are stored in the settings file (not in *Export settings*); the environment variables `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` work too.
 - The repository includes a preconfigured `.gitignore` to prevent any personal documents, resumes, spreadsheets, or runtime journals from ever being tracked in version control.
 
 ---

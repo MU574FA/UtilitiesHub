@@ -968,14 +968,14 @@ def _ai_setup(flow: Flow, mode: str) -> tuple[str, Any]:
     mode = aimode.normalise(mode)
     if mode != aimode.RULES and not cfg.enabled:
         if mode == aimode.AI:
-            raise ValueError("AI is switched off - turn it on in Settings > AI (Ollama), or choose a mode with Rules.")
+            raise ValueError("AI is switched off - turn it on in Settings > AI, or choose a mode with Rules.")
         flow.log("AI is switched off: the Rules are used instead.", "warn")
         return aimode.RULES, cfg
     return mode, cfg
 
 
 _MODE_PARAM = Param("mode", "Method", "choice", "ai", [], help="Rules only • AI only • Rules first, AI if they find "
-                    "nothing • AI first, Rules if it finds nothing.  Needs Settings > AI (Ollama) switched on.")
+                    "nothing • AI first, Rules if it finds nothing.  Needs Settings > AI switched on.")
 
 
 def _mode_param(default: str = "ai") -> Param:

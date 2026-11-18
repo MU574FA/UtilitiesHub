@@ -445,7 +445,7 @@ class DocPacker(Tool):
         mode = ai.mode("cover")
         if not ai.enabled or mode == "rules":
             if not auto:
-                info_box(self.frame, "AI filling is off. Turn on Settings > AI (Ollama) and set 'Cover-page values' to "
+                info_box(self.frame, "AI filling is off. Turn on Settings > AI and set 'Cover-page values' to "
                                      "something other than 'Rules only'.")
             return
         docs = []

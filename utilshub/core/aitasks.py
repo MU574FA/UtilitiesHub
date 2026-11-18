@@ -70,7 +70,7 @@ def extract_fields(cfg: LlmConfig, text: str, asks: list[FieldAsk], filename: st
     prompt = (f"Extract these fields from the document:\n{lines}\n\n"
               "Return one JSON object whose keys are exactly the field keys above and whose values are arrays of strings "
               "copied from the document (empty array when the field is not present).\n\n" + _doc(text, cfg, filename))
-    data = ask_json(cfg, prompt, SYSTEM, schema)
+    data = ask_json(cfg, prompt, SYSTEM, schema, task="extraction")
     if not isinstance(data, dict):
         raise LlmError("The model's answer was not a JSON object.")
     lower = {str(k).lower(): v for k, v in data.items()}
@@ -97,7 +97,7 @@ def classify_document(cfg: LlmConfig, text: str, types: list[tuple[str, str, str
               + " Return JSON: {\"type\": \"<id or none>\", \"confidence\": <0 to 1>, \"reason\": \"<short>\"}.\n\n"
               + _doc(text, cfg, filename))
     images = [image_to_b64(image)] if image is not None else None
-    data = ask_json(cfg, prompt, SYSTEM, schema, images=images)
+    data = ask_json(cfg, prompt, SYSTEM, schema, images=images, task="classify")
     if not isinstance(data, dict):
         raise LlmError("The model's answer was not a JSON object.")
     tid = str(data.get("type", "none")).strip()
@@ -124,7 +124,7 @@ def classify_pages(cfg: LlmConfig, page_texts: list[str], types: list[tuple[str,
               f"has the same type as the page before it.\n"
               "Return JSON: {\"pages\": [{\"page\": 1, \"type\": \"<id or none>\"}, ...]} with one entry per page.\n\n"
               f"<document>\n{pages}\n</document>")
-    data = ask_json(cfg, prompt, SYSTEM, schema)
+    data = ask_json(cfg, prompt, SYSTEM, schema, task="classify")
     out: list[str | None] = [None] * len(page_texts)
     items = data.get("pages") if isinstance(data, dict) else data
     if not isinstance(items, list):
@@ -154,7 +154,7 @@ def check_question(cfg: LlmConfig, question: str, text: str, facts: dict[str, st
               "Answer 'yes' only if the document clearly satisfies it, 'no' if it clearly does not, and 'unsure' if "
               "the document does not show enough. Return JSON: {\"answer\": \"yes|no|unsure\", \"reason\": \"<one short "
               "sentence>\"}.\n\n" + _doc(text, cfg, filename))
-    data = ask_json(cfg, prompt, SYSTEM, schema, images=[image_to_b64(image)] if image is not None else None)
+    data = ask_json(cfg, prompt, SYSTEM, schema, images=[image_to_b64(image)] if image is not None else None, task="reasoning")
     if not isinstance(data, dict):
         raise LlmError("The model's answer was not a JSON object.")
     ans = str(data.get("answer", "unsure")).strip().lower()
@@ -178,7 +178,7 @@ def same_person(cfg: LlmConfig, a: str, b: str) -> tuple[bool | None, str]:
     prompt = (f"Do these two names denote the same person? Accept spelling variants, transliterations, different word "
               f"order, missing middle names and OCR slips.\nName A: {a}\nName B: {b}\n"
               "Return JSON: {\"same\": \"yes|no|unsure\", \"reason\": \"<short>\"}.")
-    data = ask_json(cfg, prompt, SYSTEM, schema)
+    data = ask_json(cfg, prompt, SYSTEM, schema, task="reasoning")
     ans = str(data.get("same", "unsure")).lower() if isinstance(data, dict) else "unsure"
     return (True if ans == "yes" else False if ans == "no" else None), (str(data.get("reason", ""))[:200]
                                                                         if isinstance(data, dict) else "")
@@ -195,7 +195,7 @@ def suggest_filename(cfg: LlmConfig, text: str, instruction: str, original: str 
               "Rules: at most 80 characters, no slashes or special characters, keep the document's own language. "
               "If the document does not contain what the instruction needs, return an empty name.\n"
               "Return JSON: {\"name\": \"<file name>\"}.\n\n" + _doc(text, cfg, original))
-    data = ask_json(cfg, prompt, SYSTEM, schema)
+    data = ask_json(cfg, prompt, SYSTEM, schema, task="extraction")
     name = str(data.get("name", "")) if isinstance(data, dict) else ""
     name = _BAD_FILENAME.sub(" ", name)
     return " ".join(name.split()).strip(" .")[:80]
@@ -207,7 +207,7 @@ def answer_question(cfg: LlmConfig, text: str, question: str, filename: str = ""
     prompt = (f"Question: {question}\nAnswer with the value only (a few words, no sentence). If the document does not "
               "contain the answer, return an empty string.\nReturn JSON: {\"answer\": \"<value>\"}.\n\n"
               + _doc(text, cfg, filename))
-    data = ask_json(cfg, prompt, SYSTEM, schema)
+    data = ask_json(cfg, prompt, SYSTEM, schema, task="extraction")
     ans = data.get("answer", "") if isinstance(data, dict) else ""
     vals = _clean_list(ans, 1)
     return vals[0] if vals else ""
@@ -221,6 +221,6 @@ def classify_into(cfg: LlmConfig, text: str, labels: list[str], filename: str = 
     schema = {"type": "object", "properties": {"label": {"type": "string", "enum": labels + ["none"]}}, "required": ["label"]}
     prompt = ("Which category does this document belong to? Choose exactly one of: " + ", ".join(labels)
               + ", or 'none' if no category fits. Return JSON: {\"label\": \"<category>\"}.\n\n" + _doc(text, cfg, filename))
-    data = ask_json(cfg, prompt, SYSTEM, schema)
+    data = ask_json(cfg, prompt, SYSTEM, schema, task="classify")
     lab = str(data.get("label", "none")).strip() if isinstance(data, dict) else "none"
     return lab if lab in labels else ""
