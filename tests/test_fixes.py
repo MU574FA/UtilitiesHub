@@ -24,8 +24,16 @@ def test_formula_safe():
     assert formula_safe("=HYPERLINK(\"x\")") == "'=HYPERLINK(\"x\")"
     assert formula_safe("@SUM(1)") == "'@SUM(1)"
     assert formula_safe("-cmd|' /C calc'!A0").startswith("'")
-    assert formula_safe("+964 770 123 4567") == "+964 770 123 4567"        # phone numbers stay
-    assert formula_safe("-5") == "-5" and formula_safe("Ali") == "Ali"
+    assert formula_safe("+964 770 123 4567") == "'+964 770 123 4567"      # phone numbers stay as text in Excel
+    assert formula_safe("+966-576851574") == "'+966-576851574"
+    assert formula_safe("0571839615") == "'0571839615"
+    assert formula_safe("9647701234567") == "'9647701234567"
+    assert formula_safe("0571839615, +966561893396") == "'0571839615, +966561893396"
+    assert formula_safe("'+964 770 123 4567") == "'+964 770 123 4567"     # idempotent
+    assert formula_safe("-5") == "'-5"
+    assert formula_safe("Ali") == "Ali"
+    assert formula_safe("   ") == "   "
+    assert formula_safe("2026-11-01T08:22:56") == "2026-11-01T08:22:56"
 
 
 def test_append_fast_path_new_column_and_injection(tmp_path):

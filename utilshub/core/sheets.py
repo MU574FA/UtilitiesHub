@@ -152,15 +152,16 @@ def write_xlsx(path: str | Path, sheets: dict[str, list[list[Any]]], header: boo
     return str(path)
 
 
-_NUMBERISH = re.compile(r"^[+-]?[\d\s().,\-]+$")
+_NUMBERISH = re.compile(r"^(?=.*\d)[\d\s().,+\-/;]+$")
 
 
 def formula_safe(text: str) -> str:
-    """Stop text read from documents from running as a formula when the file is opened in Excel (CSV injection).
+    """Stop text read from documents from running as a formula or being re-formatted as a number in Excel.
 
-    `=...`, `@...` and `+/-` followed by something that is not number-like get a leading apostrophe;
-    phone numbers such as +964 770 123 4567 and negative numbers are left alone."""
-    if text and (text[0] in "=@\t\r" or (text[0] in "+-" and not _NUMBERISH.match(text))):
+    `=...`, `@...`, `+/-...` and number-like strings (phone numbers such as +964 770 123 4567,
+    leading-zero numbers, long digit sequences, negative numbers) get a leading apostrophe so
+    Excel treats them as plain text instead of calculating or reformatting them."""
+    if text and (text[0] in "=+-@\t\r" or _NUMBERISH.match(text)):
         return "'" + text
     return text
 

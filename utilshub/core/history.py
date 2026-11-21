@@ -6,6 +6,8 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
+from .sheets import cell_text, formula_safe
+
 
 class HistoryLog:
     BASE_COLUMNS = ["timestamp", "status", "original_file", "saved_as"]
@@ -16,7 +18,8 @@ class HistoryLog:
 
     def append(self, row: dict, status: str = "saved", original: str = "", saved_as: str = "") -> None:
         record = {"timestamp": datetime.now().isoformat(timespec="seconds"), "status": status,
-                  "original_file": original, "saved_as": saved_as, **{k: v for k, v in row.items()}}
+                  "original_file": original, "saved_as": saved_as,
+                  **{k: formula_safe(cell_text(v)) for k, v in row.items()}}
         with self._lock:
             rows, columns = [], list(self.BASE_COLUMNS)
             self.path.parent.mkdir(parents=True, exist_ok=True)

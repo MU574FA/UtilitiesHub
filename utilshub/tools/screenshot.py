@@ -14,7 +14,7 @@ from PIL import Image, ImageGrab, ImageOps, ImageTk
 from ..core import ocr
 from ..core.fields import ExtractContext, FieldEngine, FieldSpec, default_screenshot_fields, join_values, parse_specs
 from ..core.schema import Opt
-from ..core.sheets import write_csv, write_xlsx
+from ..core.sheets import formula_safe, write_csv, write_xlsx
 from ..core.templates import render_clipboard
 from ..ui.dnd import DropZone
 from ..ui.widgets import DataTable, Tooltip, confirm, copy_to_clipboard, error, modal, style_text
@@ -306,7 +306,7 @@ class Screenshot(Tool):
         self.app.notify(f"Saved {len(self.rows)} rows")
 
     def copy_table(self) -> None:
-        copy_to_clipboard(self.app.root, "\n".join("\t".join(r) for r in self._matrix()))
+        copy_to_clipboard(self.app.root, "\n".join("\t".join(formula_safe(c) for c in r) for r in self._matrix()))
         self.app.notify("Table copied (paste into Excel)")
 
     # ------------------------------------------------------------------ input
