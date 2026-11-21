@@ -7,8 +7,8 @@
     settings.section("ocr.")               # {"lang": "eng", ...}  (prefix stripped)
 
 Stored flat (`{"cv.watch_folder": "..."}`) so a hand edit is easy and old keys survive.
-Everything lives in `<project>/data` (settings.json, journal, history, logs, caches, temp files).
-Set UTILSHUB_HOME to relocate the data folder.
+Everything lives in `<project>/data` (settings.json, journal, history, logs, caches, temp files) when run from the
+project folder, or in the per-user app folder when installed with pip.  Set UTILSHUB_HOME to relocate the data folder.
 """
 from __future__ import annotations
 
@@ -60,10 +60,16 @@ def data_dir() -> Path:
 
     UTILSHUB_HOME may point somewhere else (used by the tests)."""
     override = os.environ.get("UTILSHUB_HOME")
-    path = Path(override) if override else app_root() / "data"
+    from_source = (app_root() / "pyproject.toml").exists()        # a checkout / unzipped folder (not pip-installed)
+    if override:
+        path = Path(override)
+    elif from_source:
+        path = app_root() / "data"
+    else:
+        path = _legacy_dir()                                      # installed with pip: site-packages must not hold user data
     fresh = not path.exists()
     path.mkdir(parents=True, exist_ok=True)
-    if fresh and not override:
+    if fresh and not override and from_source:
         _migrate_legacy(path)
     return path
 

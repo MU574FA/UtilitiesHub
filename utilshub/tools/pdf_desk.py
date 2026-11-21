@@ -8,8 +8,7 @@ from pathlib import Path
 from tkinter import filedialog, ttk
 
 from ..core import ocr
-from ..core.pdfops import COMPRESSION_LEVELS, AssembleOptions, Piece, assemble, extract_pages, make_searchable, split_pdf
-from ..core.readers import supported_extensions
+from ..core.pdfops import COMPRESSION_LEVELS, AssembleOptions, Piece, assemble, make_searchable, split_pdf
 from ..core.schema import Opt
 from ..core.settings import temp_dir
 from ..core.system import open_path, reveal
@@ -17,7 +16,7 @@ from ..core.textutil import parse_page_ranges, sanitize_filename
 from ..ui.dnd import DropZone
 from ..ui.thumbs import ThumbGrid, ThumbItem
 from ..ui.viewer import PageViewer
-from ..ui.widgets import ask_text, confirm, error, info as info_box
+from ..ui.widgets import confirm, error, info as info_box
 from .base import Command, Tool
 from .docpacker import compress_at_least
 

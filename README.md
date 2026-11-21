@@ -14,9 +14,11 @@ A modern, offline-first desktop productivity suite built with Python and Tkinter
 - **🔄 Match & Sync** (tabs: *Names · Sheet sync*): Compare two name lists or find typed names in a file (typos, word order, Arabic spelling), and update an old Excel sheet from a new one by key, reviewing every change before it is applied.
 - **🧼 Clean-up** (tabs: *Duplicates · Scans*): *Duplicates* finds identical files, documents with the same text and look-alike scans (even turned, re-sized or re-saved), each with a likelihood score; work in **Manual**, **Assisted** or **Auto** mode. Duplicates are *moved* to a review folder, never deleted. *Scans* detects turned, tilted, shadowed and blank pages and fixes them (turn upright, straighten, trim, even out lighting, black & white, drop blank pages), then lets you fine-tune any page by hand. Originals are never touched, and a whole batch is undone in one click.
 - **🤖 Automation** (tabs: *Workflows · Autopilot · History & Undo*): Snap together Lego-like bricks (*Filter → OCR → Rename → Merge → Move*) with dry-run previews; let **folder triggers** run a saved workflow automatically whenever a file arrives in a folder (with a loop guard and a *Test (preview)* button); and search, export or undo anything that was ever moved, copied or renamed - one click undoes a whole run.
+- **⌨ Autocomplete**: Every text box has its own keywords and shortcuts, and you decide where it is on or off (Settings > Autocomplete, or right-click any box). See [Autocomplete](#-autocomplete).
 - **🏠 Customisable Home**: Drag tools into your own order, hide the ones you do not use and bring them back with one click (Settings > Home & tools, or right-click a tool in the sidebar / on Home).
 - **⏪ Journal & Undo**: Full operational journaling allowing one-click rollback of all file renames, copies, and moves (Automation > History & Undo).
 - **🗂️ Tabs with a shared files bar**: Related tools live together. Drop files once, then send the same files to any tab of that tool with one click. The last tab is remembered; **Alt+←/→** switches tabs; the command palette (Ctrl+K) still finds every tab's commands.
+- **💬 WhatsApp import (DocPacker)**: *💬 WhatsApp ZIP…* (or drop the exported ZIP) lists the files with their sender, date and caption, previews each one, lets you mark which file is which document (or that one file holds several), shows the chat like WhatsApp and fills the name, phone, joining date or any field from a message you pick. Files are unzipped one at a time, only when opened, and deleted after a few days.
 - **✨ Optional offline AI (Ollama)**: Read scans with a local vision model, fill fields in plain words, recognise and split documents, answer checklist questions, compare names across spellings and fill the DocPacker cover page - all through your own Ollama, all switchable, with a **Rules / AI / Rules→AI / AI→Rules** mode for every feature. See [AI (optional)](#-ai-optional-ollama-any-openai-compatible-api-or-anthropic).
 
 ---
@@ -59,6 +61,23 @@ A modern, offline-first desktop productivity suite built with Python and Tkinter
    python run.py
    ```
    *(On Windows, you can also double-click `Start-UtilsHub.bat`)*
+
+---
+
+## ⌨ Autocomplete
+
+Suggestions and text shortcuts while you type, in the CV Sorter / Screenshot field forms, the Visa Tracker (person form, contact-log note) and the DocPacker cover fields.
+
+**You decide where.** *Settings > Autocomplete* lists every box. Click the ✔ in front of a box to switch it on or off, or use *Enable / Disable all shown*. The master switch (and *Ctrl+K > Turn autocomplete on / off*) silences everything without losing your choices. You can also **right-click any box** → *turn off for this box*, *add the selected text as a keyword*, *add a shortcut…*, *Keywords & shortcuts for this box…*.
+
+**Each box has its own**
+- **Keywords**: words and phrases offered while typing (one per line, import from a .txt/.csv). Some boxes also use the word lists from *Settings > Matching* (job titles, known companies, visa types).
+- **Shortcuts**: `nr = No response`. Type the shortcut, then **Space** or **Tab**; Backspace straight after puts it back. A shortcut starting with a symbol works mid-word (`john@g` → `john@gmail.com`). In the text you can use `{today}`, `{time}`, `{cursor}` and `\n` (new line, in multi-line boxes).
+- **Remember what I type**: finished values (names, groups, companies) are offered next time. Kept only in `data/autocomplete_learned.json`, never in exported settings. Boxes holding passport, phone, visa or flight numbers are never remembered.
+
+**Keys:** ↑/↓ choose, **Tab** accepts, **Enter** accepts only a suggestion you chose with the arrows (so Enter still submits a form), **Esc** closes, **Ctrl+Space** opens the list. Matching is accent-, case- and Arabic-spelling-insensitive; *Smart* matching also understands initials (`hro` → Human Resources Officer) and one typo.
+
+**Developers:** `core/autocomplete.py` (engine, no Tk, `tests/test_autocomplete.py`), `ui/autocomplete.py` (`attach(widget, "field.id", extra=...)`), `ui/autocomplete_ui.py` (settings page). To add a box: register a `FieldDef` (or a source for settings-dependent boxes) and call `attach`.
 
 ---
 

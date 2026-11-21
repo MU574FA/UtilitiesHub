@@ -8,9 +8,10 @@ import tkinter as tk
 from collections import deque
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, ttk
+from tkinter import ttk
 
 from . import APP_NAME, __version__
+from .core import autocomplete as autocomplete_core
 from .core import toolorder
 from .core.fileops import Journal
 from .core.jobs import JobRunner, UiBridge
@@ -25,6 +26,8 @@ from .ui.palette import CommandPalette
 from .ui.settings_ui import SettingsWindow
 from .ui.theme import ThemeManager
 from .ui.widgets import Toast, confirm, info, tip
+
+_log = __import__("logging").getLogger(__name__)
 
 # Hubs (cleanup, extract, match, automation) hold the smaller tools as tabs; see tools/hub.py.
 TOOL_MODULES = ["home", "visa_tracker", "cv_sorter", "docpacker", "file_picker", "cleanup", "pdf_desk", "extract", "match",
@@ -64,6 +67,7 @@ class App:
         self.settings.register(STATE_OPTS)
         for cls in self.tool_classes:
             self.settings.register(cls.options())
+        self.autocomplete = autocomplete_core.create(self.settings, data_dir() / "autocomplete_learned.json")
         self._setup_logging()
         self.root = root or dnd.create_root()
         self.root.app = self
@@ -98,6 +102,7 @@ class App:
         self.settings.subscribe("window.", self._window_changed)
         self.settings.subscribe("ocr.libreoffice_cmd", lambda k, v: setattr(self.renderer, "cmd", v))
         self.jobs.on_change(self._job_changed)
+        self.settings.subscribe("auto.max_parallel", lambda k, v: self.jobs.resize(max(2, int(v or 1) + 1)))
         dnd.make_drop_target(self.root, self.on_drop)
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
         start = self.settings.get("window.last_tool") if self.settings.get("window.startup_tool") == "last" else "home"
@@ -120,7 +125,15 @@ class App:
             pass
 
     def _prune_logs(self) -> None:
-        pass                                    # RotatingFileHandler already bounds the size
+        """Delete rotated log files older than `app.keep_log_days` (the live log is bounded by the rotating handler)."""
+        import time
+        limit = time.time() - max(1, self.settings.get_int("app.keep_log_days", 30)) * 86400
+        for f in data_dir().glob("utilshub.log.*"):
+            try:
+                if f.stat().st_mtime < limit:
+                    f.unlink()
+            except OSError:
+                pass
 
     def log(self, message: str, level: str = "info", tool: str = "") -> None:
         stamp = datetime.now().strftime("%H:%M:%S")
@@ -133,7 +146,7 @@ class App:
             try:
                 cb(stamp, level, tool, message)
             except Exception:
-                pass
+                _log.debug("ignored error", exc_info=True)
 
     def on_log(self, cb) -> None:
         self.__dict__.setdefault("_log_listeners", []).append(cb)
@@ -461,6 +474,9 @@ class App:
                 Command("auto.start", "Start all watchers", self.start_all_auto, "Autopilot"),
                 Command("auto.stop", "Stop all watchers", self.stop_all_auto, "Autopilot"),
                 Command("data", "Open data folder", lambda: open_path(data_dir()), "App", "logs files")]
+        cmds.append(Command("autocomplete.toggle", "Turn autocomplete on / off",
+                            lambda: self.autocomplete.set_master(not self.autocomplete.master()), "App",
+                            "suggestions shortcuts typing keywords"))
         cmds.append(Command("tools.customize", "Customize tools: order, hide, show", lambda: self.open_settings("home"),
                             "App", "rearrange sidebar home"))
         for t in self.sorted_tools():
@@ -468,6 +484,7 @@ class App:
         for t in self.hidden_tools():
             cmds.append(Command(f"unhide.{t.id}", f"Show {t.title} in the sidebar", lambda i=t.id: self.set_tool_hidden(i, False),
                                 "App", "unhide"))
+        for t in self.sorted_tools():                 # every tool's own commands, hidden or not
             for c in t.commands():
                 cmds.append(Command(c.id, c.title, c.callback, c.group or t.title, c.keywords, c.shortcut))
         for p in self.settings_pages():
@@ -542,7 +559,7 @@ class App:
 
     def start_all_auto(self) -> None:
         for t in self.iter_tools():
-            if t.can_automate() and not t.auto_running():
+            if t.can_automate() and (not t.auto_running() or t.auto_incomplete()):
                 try:
                     t.start_auto()
                 except Exception as exc:
@@ -551,7 +568,10 @@ class App:
     def stop_all_auto(self) -> None:
         for t in self.iter_tools():
             if t.can_automate() and t.auto_running():
-                t.stop_auto()
+                try:
+                    t.stop_auto()
+                except Exception as exc:
+                    self.log(f"{t.title}: could not stop - {exc}", "error")
 
     def _start_automation(self) -> None:
         if self.settings.get_bool("auto.start_watchers", True):
@@ -570,6 +590,7 @@ class App:
             except Exception:
                 logging.getLogger("app").exception("on_close")
         self.jobs.shutdown()
+        self.autocomplete.flush()
         self.settings.flush()
         self.root.destroy()
 

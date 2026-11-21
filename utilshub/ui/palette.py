@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
-from .widgets import Tooltip, attach_window_controls
+from .widgets import attach_window_controls
 
 
 class CommandPalette(tk.Toplevel):

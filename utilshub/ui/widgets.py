@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import csv
-import io
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Callable, Iterable
@@ -306,7 +305,6 @@ class DataTable(ttk.Frame):
         self.menu.add_command(label="Export to CSV…", command=self.export_csv)
         self.tree.bind("<Button-3>", self._popup)
         self.tree.bind("<Button-2>", self._popup)
-        app = app_of(self)
         self._tags_painted = False
 
     # -- content
@@ -490,7 +488,6 @@ def attach_window_controls(top: tk.Toplevel, bar: tk.Misc | None = None, title: 
     max_btn: ttk.Button | None = None
 
     def _toggle_maximize():
-        nonlocal max_btn
         try:
             cur = top.state()
             if cur == "zoomed":

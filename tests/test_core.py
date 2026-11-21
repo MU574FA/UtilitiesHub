@@ -84,7 +84,7 @@ def test_settings():
 def test_arabic_and_cover():
     import pymupdf as fitz
     from utilshub.core import arabic
-    from utilshub.tools.docpacker import draw_cover
+    from utilshub.core.docpack_util import draw_cover
     assert arabic.available()
     shaped = arabic.visual("محمد علي")
     assert shaped != "محمد علي"
@@ -115,7 +115,8 @@ def test_textmatch_and_mrz_summary():
 def test_append_and_folder_templates():
     from utilshub.core.appendfile import append_records
     from utilshub.core.templates import render_folder, render_line
-    from utilshub.tools.docpacker import custom_keys, detect_groups, page_info
+    from utilshub.core.docpack_util import custom_keys, page_info
+    from utilshub.core.aidocs import detect_groups
     assert render_folder("{surname}/../{year}/", {"surname": "Smith", "year": "2026"}) == Path("Smith/2026")
     assert render_line("Passport: {p}", {"p": ""}) == ""
     assert custom_keys(["Passport no.", "رقم الهوية"]) == {"Passport no.": "passport_no", "رقم الهوية": "field2"}

@@ -39,6 +39,8 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 from urllib.parse import urlparse
 
+_log = __import__("logging").getLogger(__name__)
+
 log = logging.getLogger(__name__)
 
 DEFAULT_HOST = "http://localhost:11434"
@@ -287,7 +289,7 @@ def _send(cfg: LlmConfig, prof: Profile, url: str, payload: dict | None = None, 
             try:
                 raw = exc.read()
             except Exception:
-                pass
+                _log.debug("ignored error", exc_info=True)
             retryable = exc.code in (429, 529) or (exc.code == 503 and prof.provider != OLLAMA)
             if retryable and attempt < 2:
                 attempt += 1

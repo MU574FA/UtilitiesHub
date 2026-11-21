@@ -20,7 +20,7 @@ from ..core.schema import Opt
 from ..core.system import open_path, reveal
 from ..core.textutil import human_size
 from ..ui.dnd import DropZone
-from ..ui.widgets import DataTable, FolderEntry, Tooltip, confirm, error, info
+from ..ui.widgets import DataTable, FolderEntry, confirm, error, info
 from .base import Command, Tool
 
 PRESET_CHOICES = [(k, v[0]) for k, v in sc.PRESETS.items()] + [("custom", "Custom")]
@@ -62,7 +62,6 @@ class ScanCleaner(Tool):
     icon = "🧼"
     order = 41
     description = "Straighten, turn upright, trim and clean scans. Automatic first, then fix any page by hand."
-    accepts = tuple(FILE_EXTS)
 
     @classmethod
     def options(cls) -> list[Opt]:

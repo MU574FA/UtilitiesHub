@@ -2,31 +2,35 @@
 from __future__ import annotations
 
 import datetime as dt
-import os
-import re
 import tkinter as tk
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from tkinter import filedialog, ttk
 
-from ..core import aidocs, arabic, ocr
+from ..core import aidocs, ocr, whatsapp as wa
 from ..core.aidocs import AiContext, detect_groups  # noqa: F401  (detect_groups is re-exported here)
 from ..core.aitasks import FieldAsk
+from ..core.docpack_util import compress_at_least, custom_keys, draw_cover, page_info  # noqa: F401  (re-exported)
 from ..core.dates import parse_any_date
-from ..core.doctypes import CheckContext, DocType, default_doctypes, run_check, score_doctype
+from ..core.doctypes import CheckContext, DocType, default_doctypes, run_check
 from ..core.fileops import resolve_target
 from ..core.mrz import extract_surname, looks_like_passport
-from ..core.pdfops import COMPRESSION_LEVELS, AssembleOptions, Piece, assemble, fitz
+from ..core.pdfops import AssembleOptions, Piece, assemble
 from ..core.readers import DocInfo, ReadOptions, read_document, supported_extensions
 from ..core.schema import Opt
 from ..core.system import open_path
-from ..core.templates import render, render_folder, render_line, tidy_filename
-from ..core.textutil import format_page_ranges, parse_page_ranges, sanitize_filename
+from ..core.templates import render, render_folder, tidy_filename
+from ..core.textutil import format_page_ranges, parse_page_ranges
+from ..core.textutil import slugify
+from ..ui.autocomplete import attach as autocomplete
 from ..ui.dnd import DropZone
 from ..ui.thumbs import ThumbGrid, ThumbItem
 from ..ui.viewer import PageViewer
-from ..ui.widgets import DataTable, FolderEntry, Tooltip, confirm, error, info as info_box, modal
+from ..ui.whatsapp_import import WhatsAppImport
+from ..ui.widgets import DataTable, Tooltip, confirm, error, info as info_box, modal
 from .base import Command, Tool
+
+_log = __import__("logging").getLogger(__name__)
 
 UNASSIGNED, EXCLUDED = "", "__skip__"
 SEVERITY = {"fail": 4, "warn": 3, "manual": 2, "info": 1, "ok": 0, "manual_ok": 0, "skip": 0}
@@ -73,96 +77,12 @@ class Entry:
         return worst
 
 
-def custom_keys(labels: list[str]) -> dict[str, str]:
-    """label -> placeholder name for the user's custom fields ('Passport no.' -> passport_no)."""
-    out: dict[str, str] = {}
-    for i, label in enumerate(labels, 1):
-        key = re.sub(r"[^a-z0-9]+", "_", label.encode("ascii", "ignore").decode().lower()).strip("_")
-        if not key or key[0].isdigit() or key in out.values():
-            key = f"field{i}"
-        out[label] = key
-    return out
-
-
-def page_info(info: DocInfo, pages: list[int]) -> DocInfo:
-    """`info` restricted to some (0-based) pages: what recognition and checks see for one part of a file."""
-    pick = lambda seq: [seq[p] for p in pages if p < len(seq)]          # noqa: E731
-    texts = pick(info.page_texts)
-    return replace(info, text="\n".join(texts) if info.page_texts else info.text, pages=len(pages), page_texts=texts,
-                   page_meta=pick(info.page_meta), page_rot=pick(info.page_rot), hash="")
-
-
-def compress_at_least(path: str, level: int, target_bytes: int = 0) -> int:
-    """Compress `path` in place, starting at `level` and going stronger until `target_bytes` is met. Returns the size."""
-    size = os.path.getsize(path)
-    tmp = path + ".tmp.pdf"
-    for lvl in range(max(0, min(level, len(COMPRESSION_LEVELS) - 1)), len(COMPRESSION_LEVELS)):
-        q, _maxpx, dpi = COMPRESSION_LEVELS[lvl]
-        with fitz.open(path) as doc:
-            if dpi and hasattr(doc, "rewrite_images"):
-                try:
-                    doc.rewrite_images(dpi_threshold=dpi + 40, dpi_target=dpi, quality=q or 90)
-                except Exception:
-                    pass
-            doc.save(tmp, garbage=4, deflate=True, clean=True)
-        new = os.path.getsize(tmp)
-        if new <= size:
-            os.replace(tmp, path)
-            size = new
-        else:
-            os.remove(tmp)
-        if target_bytes <= 0 or size <= target_bytes:
-            break
-    return size
-
-
-def draw_cover(page, vals: dict[str, str], cfg: dict, rows: list[tuple[str, str]], starts: dict[int, int],
-               missing: list[str]) -> None:
-    """Draw the cover page the user designed in the settings (title, free lines, checklist, missing documents).
-
-    Arabic text is shaped and right-aligned; everything else starts at the left margin.
-    """
-    right, y = page.rect.width - 50, 70
-    try:
-        title = render(cfg.get("title") or "", vals).strip()
-    except ValueError:
-        title = vals.get("name", "")
-    if title:
-        arabic.draw_text(page, 50, y, title, 18, bold=True, right=right)
-        y += 24
-    for tpl in cfg.get("lines") or []:
-        try:
-            line = render_line(str(tpl), vals)
-        except ValueError:
-            continue
-        if line:
-            arabic.draw_text(page, 50, y, line, 11, color=(0.3, 0.3, 0.3), right=right)
-            y += 18
-    y += 16
-    if cfg.get("checklist", True):
-        for i, (tname, worst) in enumerate(rows):
-            mark = {"fail": "[X]", "warn": "[!]", "manual": "[ ]"}.get(worst, "[v]")
-            page.insert_text((50, y), mark, fontsize=11, fontname="helv")
-            arabic.draw_text(page, 80, y, tname[:70], 11)
-            if cfg.get("refs", True) and i in starts:
-                page.insert_text((470, y), f"p. {starts[i]}", fontsize=11, fontname="helv")
-            y += 18
-            if y > 780:
-                break
-    if cfg.get("missing", True):
-        for tname in missing:
-            page.insert_text((50, y + 6), "[X]", fontsize=11, fontname="hebo", color=(0.75, 0, 0))
-            arabic.draw_text(page, 80, y + 6, f"MISSING: {tname}"[:80], 11, bold=True, color=(0.75, 0, 0))
-            y += 18
-
-
 class DocPacker(Tool):
     id = "docpacker"
     title = "Doc Packer"
     icon = "📦"
     order = 20
     description = "Recognise a person's documents, check them, fix pages by hand and build one PDF package."
-    accepts = ()
 
     @classmethod
     def options(cls) -> list[Opt]:
@@ -183,7 +103,7 @@ class DocPacker(Tool):
             Opt("docpacker.output_subfolder", "", "Sub-folder for each package", "str", section="Package",
                 help="Created inside the folder above. Any field, e.g. {surname} or {year}/{name}. Empty = none."),
             Opt("docpacker.output_name", "{name} - package", "Package file name", "str", section="Package",
-                help="{name} {surname} {joining} {date} and your custom fields, e.g. {name} - {passport_no}"),
+                help="{name} {surname} {joining} {phone} {date} and your custom fields, e.g. {name} - {passport_no}"),
             Opt("docpacker.parts_folder", "", "Also save every document as its own PDF in folder", "str", section="Package",
                 help="Relative to the folder above, e.g. {name}/documents. Empty = only the one package."),
             Opt("docpacker.parts_name", "{doctype}", "Name of those separate files", "str", section="Package",
@@ -209,7 +129,7 @@ class DocPacker(Tool):
                      "recognised on its own and neighbouring pages of one type become one document."),
             Opt("docpacker.cover", True, "Add a cover page", "bool", section="Cover page"),
             Opt("docpacker.cover_title", "Document package - {name}", "Title", "str", section="Cover page",
-                help="{name} {surname} {joining} {date} {count} (documents) and your custom fields. Arabic is fine."),
+                help="{name} {surname} {joining} {phone} {date} {count} (documents) and your custom fields. Arabic is fine."),
             Opt("docpacker.cover_lines", ["{date}"], "Lines under the title (one per line)", "list", section="Cover page",
                 help="e.g. Passport no: {passport_no} • A line whose fields are all empty is left out."),
             Opt("docpacker.cover_checklist", True, "Show the checklist of documents", "bool", section="Cover page"),
@@ -221,6 +141,9 @@ class DocPacker(Tool):
                      "values the AI filled are listed so you can check them, and you are asked again before building."),
             Opt("docpacker.ai_confirm_build", True, "Ask me to check AI-recognised documents and AI-filled values before "
                 "building the package", "bool", section="AI (Settings > AI turns it on and sets the modes)"),
+            Opt("docpacker.wa_keep_days", 3, "Keep files unzipped from WhatsApp for (days)", "int", section="WhatsApp import",
+                help="Chats are private. Files taken out of a WhatsApp ZIP are deleted after this many days (and when you "
+                     "press Clear). The ZIP itself is never changed."),
             *cls.append_opts(auto=True),
         ]
 
@@ -231,6 +154,17 @@ class DocPacker(Tool):
         self._load_types()
         self.settings.subscribe("docpacker.doctypes", lambda k, v: self._types_changed())
         self.name_var, self.surname_var, self.join_var = tk.StringVar(), tk.StringVar(), tk.StringVar()
+        self.phone_var = tk.StringVar()
+        self.wa_note_var = tk.StringVar(value="")
+        self.wa_filled: dict[str, str] = {}                     # box key -> value taken from WhatsApp (until you edit it)
+        self._wa_dialog: WhatsAppImport | None = None
+        self._wa_dirs: set[str] = set()                         # unzipped WhatsApp folders still in use
+        self._wa_split: list[str] = []                          # files to open the split view for once they are read
+        self._wa_sources: dict[str, str] = {}                   # path -> "from Ahmed, 14 Jan 10:02"
+        try:
+            wa.purge_old(max(1, self.settings.get_int("docpacker.wa_keep_days", 3)))
+        except Exception:                                       # a stuck folder must not stop the tool
+            _log.debug("ignored error", exc_info=True)
         self.status_var = tk.StringVar(value="Add the person's files (drop them anywhere in the window).")
         self.ai_note_var = tk.StringVar(value="")
         self.ai_filled: dict[str, str] = {}                     # cover box key -> value the AI put there (until you edit it)
@@ -240,13 +174,16 @@ class DocPacker(Tool):
 
         top = ttk.Frame(parent)
         top.pack(fill="x")
-        for label, var, w in (("Full name", self.name_var, 26), ("Surname", self.surname_var, 16),
-                              ("Joining date (YYYY-MM-DD)", self.join_var, 14)):
+        for label, var, w, ac_id in (("Full name", self.name_var, 26, "docpacker.name"), ("Surname", self.surname_var, 16, "docpacker.surname"),
+                                     ("Joining date (YYYY-MM-DD)", self.join_var, 14, "")):
             ttk.Label(top, text=label).pack(side="left", padx=(0, 4))
             e = ttk.Entry(top, textvariable=var, width=w)
             e.pack(side="left", padx=(0, 12))
+            if ac_id:
+                autocomplete(e, ac_id)
             var.trace_add("write", lambda *_: self._ctx_changed())
         ttk.Button(top, text="Add files…", command=self.pick_files).pack(side="right", padx=2)
+        ttk.Button(top, text="💬 WhatsApp ZIP…", command=lambda: self.open_whatsapp()).pack(side="right", padx=2)
         ttk.Button(top, text="Add folder…", command=self.pick_folder).pack(side="right", padx=2)
         ttk.Button(top, text="Clear", command=self.clear).pack(side="right", padx=2)
         ttk.Button(top, text="Re-check", command=self.recheck).pack(side="right", padx=2)
@@ -267,6 +204,8 @@ class DocPacker(Tool):
         self.summary = ttk.Label(parent, textvariable=self.status_var, wraplength=1000, justify="left")
         self.summary.pack(side="bottom", fill="x")
         ttk.Label(parent, textvariable=self.ai_note_var, style="Muted.TLabel", wraplength=1000,
+                  justify="left").pack(side="bottom", fill="x")
+        ttk.Label(parent, textvariable=self.wa_note_var, style="Muted.TLabel", wraplength=1000,
                   justify="left").pack(side="bottom", fill="x")
         self.settings.subscribe("ai.", lambda k, v: self._ai_settings_changed())
 
@@ -325,12 +264,21 @@ class DocPacker(Tool):
         for w in self.custom_host.winfo_children():
             w.destroy()
         self.custom_vars = {}
+        ttk.Label(self.custom_host, text="Phone").pack(side="left", padx=(0, 4))
+        phone = ttk.Entry(self.custom_host, textvariable=self.phone_var, width=18)
+        phone.pack(side="left", padx=(0, 12))
+        autocomplete(phone, "docpacker.phone")
+        Tooltip(phone, "Placeholder: {phone}")
+        if not getattr(self, "_phone_traced", False):
+            self._phone_traced = True
+            self.phone_var.trace_add("write", lambda *_: self._wa_prune())
         keys = custom_keys(self._custom_labels())
         for label, key in keys.items():
             ttk.Label(self.custom_host, text=label).pack(side="left", padx=(0, 4))
             var = tk.StringVar(value=old.get(label, ""))
             e = ttk.Entry(self.custom_host, textvariable=var, width=20)
             e.pack(side="left", padx=(0, 12))
+            autocomplete(e, f"docpacker.custom.{slugify(label)}")
             Tooltip(e, f"Placeholder: {{{key}}}")
             self.custom_vars[label] = var
             var.trace_add("write", lambda *_: self._ai_prune())
@@ -342,7 +290,8 @@ class DocPacker(Tool):
         """Placeholder values for the cover, the file name and the folders."""
         name = self.name_var.get().strip()
         out = {"name": name, "surname": self.surname_var.get().strip() or (name.split()[-1] if name else ""),
-               "joining": self.join_var.get().strip(), "date": dt.date.today().isoformat()}
+               "joining": self.join_var.get().strip(), "phone": self.phone_var.get().strip(),
+               "date": dt.date.today().isoformat()}
         for label, key in custom_keys(self._custom_labels()).items():
             var = self.custom_vars.get(label)
             out[key] = var.get().strip() if var else ""
@@ -401,6 +350,7 @@ class DocPacker(Tool):
 
     def _ctx_changed(self) -> None:
         self._ai_prune()
+        self._wa_prune()
         if getattr(self, "_after", None):
             self.frame.after_cancel(self._after)
         self._after = self.frame.after(500, lambda: self.recheck())
@@ -417,6 +367,10 @@ class DocPacker(Tool):
             return self.name_var
         if key == "surname":
             return self.surname_var
+        if key == "joining":
+            return self.join_var
+        if key == "phone":
+            return self.phone_var
         for label, k in custom_keys(self._custom_labels()).items():
             if k == key:
                 return self.custom_vars.get(label)
@@ -520,7 +474,11 @@ class DocPacker(Tool):
         if folder:
             self.add_paths([folder])
 
-    def add_paths(self, paths: list[str]) -> None:
+    def add_paths(self, paths: list[str], presets: dict[str, str | None] | None = None) -> None:
+        zips = [str(p) for p in paths if str(p).lower().endswith(".zip") and Path(p).is_file()]
+        if zips:                                                # a WhatsApp export (or any ZIP of documents)
+            self.open_whatsapp(zips)
+            paths = [p for p in paths if str(p) not in zips]
         supported = set(supported_extensions())
         files: list[str] = []
         for p in map(Path, paths):
@@ -532,12 +490,15 @@ class DocPacker(Tool):
         files = [f for f in dict.fromkeys(files) if f not in self.entries]
         if not files:
             return
-        if not self.name_var.get().strip():                     # a folder named after the person is a good guess
+        if not self.name_var.get().strip() and str(Path(files[0]).parent) not in self._wa_dirs:   # a folder named after the person is a good guess
             guess = self._folder_name_guess(files[0])
             if guess:
                 self.name_var.set(guess)
         for f in files:
             self.entries[f] = Entry(f)
+            tid = (presets or {}).get(f)
+            if tid:                                             # the type was chosen by hand in the WhatsApp window
+                self.entries[f].auto, self.entries[f].dtype, self.entries[f].score = False, tid, 1.0
             self.table.add({"file": Path(f).name, "type": "reading…", "score": "", "status": "", "pages": ""}, iid=f,
                            tags=("busy",))
         cfg = ocr.OcrConfig.from_settings(self.settings)
@@ -590,6 +551,153 @@ class DocPacker(Tool):
         self.recheck()
         if self.get("ai_autofill"):
             self.autofill_cover(auto=True)
+        self._wa_split_next()
+
+    # ------------------------------------------------------------------ WhatsApp import (the window is ui/whatsapp_import.py)
+    def open_whatsapp(self, zips: list[str] | None = None) -> None:
+        if not zips:
+            zips = list(filedialog.askopenfilenames(title="WhatsApp export (ZIP)",
+                                                    filetypes=[("ZIP files", "*.zip"), ("All", "*.*")]))
+            if not zips:
+                return
+        dlg = self._wa_dialog
+        if dlg is not None and dlg.top.winfo_exists():
+            dlg.add_zips(zips)
+            dlg.lift()
+            return
+        self._wa_dialog = WhatsAppImport(self.frame, self, zips)
+
+    # -- what the window asks of us
+    def wa_types(self) -> list[DocType]:
+        return [t for t in self._types if t.enabled]
+
+    def wa_supported(self) -> list[str]:
+        return list(supported_extensions())
+
+    def wa_field_choices(self) -> list[tuple[str, str]]:
+        """The boxes a WhatsApp message can fill."""
+        out = [("name", "Full name"), ("surname", "Surname"), ("joining", "Joining date"), ("phone", "Phone")]
+        return out + [(k, label) for label, k in custom_keys(self._custom_labels()).items()]
+
+    def wa_current(self, key: str) -> str:
+        var = self._var_for(key)
+        return var.get() if var is not None else ""
+
+    def wa_apply_field(self, key: str, value: str) -> None:
+        var = self._var_for(key)
+        if var is None:
+            return
+        var.set(value)
+        self.ai_filled.pop(key, None)                           # it is from WhatsApp now, not from the AI
+        self.wa_filled[key] = value.strip()
+        self._ai_note()
+        self._wa_note()
+
+    def wa_add_field(self, label: str) -> tuple[str, str] | None:
+        labels = self._custom_labels()
+        if label not in labels:
+            self.put("custom_fields", labels + [label])         # the boxes are rebuilt by the settings subscription
+        key = custom_keys(self._custom_labels()).get(label)
+        return (key, label) if key else None
+
+    def wa_fill_person(self, person, replace: bool = False) -> list[str]:
+        """Name and phone of the person from the chat.  What you typed yourself is kept unless you asked to replace it."""
+        done = []
+        for key, label, val in (("name", "name", person.name), ("phone", "phone", person.phone)):
+            if not val:
+                continue
+            cur = self.wa_current(key).strip()
+            if cur == val:
+                continue
+            if cur and not replace:
+                continue
+            if cur and cur != self.wa_filled.get(key) and not confirm(
+                    self.frame, f"Replace {label} “{cur}” with “{val}” from WhatsApp?"):
+                continue
+            self.wa_apply_field(key, val)
+            done.append(label)
+        return done
+
+    def wa_people_get(self, key: str) -> str:
+        return str((self.settings.get("docpacker.wa_people", {}) or {}).get(key, ""))
+
+    def wa_people_set(self, key: str, sender: str) -> None:
+        people = dict(self.settings.get("docpacker.wa_people", {}) or {})
+        people[key] = sender
+        self.settings.set("docpacker.wa_people", people)
+
+    def wa_import(self, items: list[tuple], note: str = "") -> None:
+        """items: (path, type id | None, several documents, "from Ahmed, 14 Jan").  The files are read like any others."""
+        presets: dict[str, str | None] = {}
+        fresh: list[str] = []
+        for path, tid, several, source in items:
+            self._wa_dirs.add(str(Path(path).parent))
+            if tid:
+                presets[path] = tid
+            if several and path not in self._wa_split:
+                self._wa_split.append(path)
+            if source:
+                self._wa_sources[path] = source
+            if path in self.entries:
+                if tid:
+                    self.assign([path], tid)
+            else:
+                fresh.append(path)
+        if fresh:
+            self.add_paths(fresh, presets)
+        elif self._wa_split:
+            self._wa_split_next()
+        self.log(f"{note or 'WhatsApp'}: {len(items)} file(s) added", "info")
+        for path, _t, _s, source in items:
+            if source:
+                self.log(f"{Path(path).name} - {source}", "info")
+
+    def wa_closed(self, keep: list[str]) -> None:
+        self._wa_dirs |= set(keep)
+        self._wa_dialog = None
+
+    # -- bookkeeping
+    def _wa_prune(self) -> None:
+        """Forget WhatsApp-filled values you edited since (they are yours now) and refresh the note."""
+        if not hasattr(self, "wa_filled"):
+            return
+        for key, val in list(self.wa_filled.items()):
+            var = self._var_for(key)
+            if var is None or var.get().strip() != val:
+                del self.wa_filled[key]
+        self._wa_note()
+
+    def _wa_note(self) -> None:
+        names = {"name": "Full name", "surname": "Surname", "joining": "Joining date", "phone": "Phone"}
+        for label, k in custom_keys(self._custom_labels()).items():
+            names[k] = label
+        self.wa_note_var.set("💬 Taken from WhatsApp - please check: " + ", ".join(
+            f"{names.get(k, k)} = {v}" for k, v in self.wa_filled.items()) if self.wa_filled else "")
+
+    def _wa_split_next(self) -> None:
+        """Open the split view of the next file you marked 'several documents' (once it has been read)."""
+        while self._wa_split:
+            path = self._wa_split[0]
+            e = self.entries.get(path)
+            if e is None:
+                self._wa_split.pop(0)
+                continue
+            if e.busy or e.info is None:
+                return                                          # still being read: _read_done calls us again
+            self._wa_split.pop(0)
+            if e.info.error or e.is_part:
+                continue
+            if self._wa_split:
+                self.log(f"{len(self._wa_split)} more file(s) wait for their split view", "info")
+            self.split_dialog(e.key)
+            return
+
+    def _wa_cleanup(self) -> None:
+        """Delete the unzipped copies (chats are private); the ZIPs are never touched."""
+        import shutil
+        for d in list(self._wa_dirs):
+            shutil.rmtree(d, ignore_errors=True)
+        self._wa_dirs.clear()
 
     def _dedupe_notice(self) -> None:
         seen: dict[str, str] = {}
@@ -797,7 +905,16 @@ class DocPacker(Tool):
         self.checks.delete(*self.checks.get_children())
         self.name_var.set("")
         self.surname_var.set("")
+        self.phone_var.set("")
+        self.wa_filled.clear()
+        self._wa_sources.clear()
+        self._wa_split.clear()
+        self.wa_note_var.set("")
+        self._wa_cleanup()
         self._refresh_summary()
+
+    def on_close(self) -> None:
+        self._wa_cleanup()                                 # unzipped WhatsApp chats are private: never leave them behind
 
     def edit_pages(self, iid: str | None = None) -> None:
         ids = self.table.selection()
@@ -862,6 +979,8 @@ class DocPacker(Tool):
             else:
                 part.auto, part.dtype, part.score = True, UNASSIGNED, 0.0
                 self._recognise(part)
+        if self._wa_split:                                      # more files from WhatsApp wait for their split view
+            self.frame.after(300, self._wa_split_next)
 
     def unsplit(self, path: str) -> None:
         root = self.entries.get(path)

@@ -20,6 +20,8 @@ from ..core import visa as V
 from ..core import visa_files, visa_io
 from ..core.render import PreviewUnavailable
 from ..core.sheets import SheetError, load_book
+from ..core.textutil import slugify
+from .autocomplete import attach as autocomplete
 from .thumbs import ThumbGrid, ThumbItem
 from .widgets import Tooltip, confirm, error, info, modal, style_text
 
@@ -138,7 +140,9 @@ class PersonDialog:
         def entry(parent, key, width=26, value=None):
             var = tk.StringVar(value=str(getattr(p, key) if value is None else value))
             self.vars[key] = var
-            ttk.Entry(parent, textvariable=var, width=width).pack(side="left")
+            e = ttk.Entry(parent, textvariable=var, width=width)
+            e.pack(side="left")
+            autocomplete(e, f"visa.{key}")          # keys without a registered box (dates ...) simply have no defaults
             return var
 
         def row(parent, *cells):
@@ -162,6 +166,7 @@ class PersonDialog:
             cb = ttk.Combobox(c, textvariable=self.vars.setdefault("group", tk.StringVar(value=p.group)),
                               values=t.store.groups(), width=24)
             cb.pack(side="left")
+            autocomplete(cb, "visa.group", extra=t.store.groups)
             Tooltip(cb, "A batch, project or agency - lets you filter and report by group.")
         row(body, ("Group / batch", group_box))
 
@@ -169,7 +174,9 @@ class PersonDialog:
         self.vars["visa_type"] = tk.StringVar(value=p.visa_type)
 
         def type_box(c):
-            ttk.Combobox(c, textvariable=self.vars["visa_type"], values=[x for x in t.get("visa_types")], width=22).pack(side="left")
+            cb = ttk.Combobox(c, textvariable=self.vars["visa_type"], values=[x for x in t.get("visa_types")], width=22)
+            cb.pack(side="left")
+            autocomplete(cb, "visa.visa_type")
         row(body, ("Visa no.", lambda c: entry(c, "visa_no", 20)), ("Visa type", type_box))
         self.days_var = tk.StringVar(value=str(p.visa_days or ""))
 
@@ -201,16 +208,23 @@ class PersonDialog:
         for label in t.custom_fields():
             var = tk.StringVar(value=str(p.extra.get(label, "")))
             self.extra_vars[label] = var
-            row(body, (label, lambda c, v=var: ttk.Entry(c, textvariable=v, width=40).pack(side="left")))
+            row(body, (label, lambda c, v=var, l=label: autocomplete(self._pack(ttk.Entry(c, textvariable=v, width=40)),
+                                                                      f"visa.custom.{slugify(l)}")))
         self.notes = tk.Text(body, height=4, wrap="word")
         style_text(frame, self.notes)
         self.notes.insert("1.0", p.notes)
         self.notes.pack(fill="x", pady=4)
+        autocomplete(self.notes, "visa.notes")
         scroll.bind_children()
         self._recalc()
         _grab(self.win)
 
     # ------------------------------------------------------------------ pieces
+    @staticmethod
+    def _pack(widget):
+        widget.pack(side="left")
+        return widget
+
     def _date(self, parent, key: str, recalc: bool = False) -> DateField:
         field_ = DateField(parent, self.tool, getattr(self.person, key), on_change=self._recalc if recalc else None)
         field_.pack(side="left")
@@ -375,6 +389,7 @@ class FollowupDialog:
         self.note = tk.Text(frame, height=5, width=60, wrap="word")
         style_text(frame, self.note)
         self.note.pack(fill="x")
+        autocomplete(self.note, "visa.log_note")
         row = ttk.Frame(frame)
         row.pack(fill="x", pady=(10, 0))
         ttk.Button(row, text="Save  (Ctrl+Enter)", style="Accent.TButton", command=self.save).pack(side="right")

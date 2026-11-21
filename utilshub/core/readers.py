@@ -25,6 +25,8 @@ from .mrz import looks_like_passport
 from .office import OfficeError, convert
 from .settings import temp_dir
 
+_log = __import__("logging").getLogger(__name__)
+
 try:
     import pymupdf as fitz
 except ImportError:                                  # older PyMuPDF
@@ -202,7 +204,7 @@ def _page_image_meta(doc, page, text: str) -> dict:
             ex = doc.extract_image(best[0])
             meta.update(w=ex["width"], h=ex["height"], data=ex["image"])
     except Exception:
-        pass
+        _log.debug("ignored error", exc_info=True)
     return meta
 
 

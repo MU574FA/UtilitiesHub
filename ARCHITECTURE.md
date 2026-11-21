@@ -69,6 +69,8 @@ between `<document>` tags as data. `core/aimode.py` is the one place that combin
 cross-check and `AiPending`. Rules-only mode calls the old code path unchanged.
 Integration points: `ocr.ocr_image` (modes via `OcrConfig.ai_mode`), `fields.FieldEngine.extract_detailed` (one model
 call per document for all fields; per-field `FieldSpec.ai_mode`; `grounded` / `accept_ai_value` validate),
+`core/whatsapp.py` (WhatsApp export ZIP: chat parser for iPhone/Android, attachment linking, people and phone numbers, safe one-file-at-a-time unzipping) and `ui/whatsapp_import.py` (the import window; talks to DocPacker only through the `wa_*` host methods); tests: `tests/test_whatsapp.py`, `tests/ui_smoke/whatsapp_import.py`.
+
 `core/aidocs.py` (DocPacker: `recognise`, `page_labels` / `detect_groups`, `run_ai_check`, name checks, `fill_cover`)
 and the `ai_*` workflow bricks. The UI thread never waits for a model: `aidocs.ai_call` caches answers and, when the
 tool sets `AiContext.background`, computes them in a job and calls `on_ready` so the screen re-checks.
@@ -117,3 +119,12 @@ All rules take `today` as an argument, so they are tested without a display (`te
 * **New filter chip**: `visa.FILTERS` + `visa.matches_filter` + `CHIPS` in the tool.
 * **Tool badge**: any tool can return a count from `Tool.badge()` and call `app.refresh_badges()`; `stats_when_closed = True`
   lets Home show `stats()` before the tool was opened.
+
+## Autocomplete
+`core/autocomplete.py` is the engine (pure logic, tested in `tests/test_autocomplete.py`): `FieldDef` (what a text box is: id, mode
+`value|list|text`, default keywords / shortcuts, linked word lists, `sensitive`), `Autocomplete` (per-field config stored as *differences
+from the defaults* in `autocomplete.fields`, `suggest`, `expansion`, `accept`, `learn`), `LearnedStore` (`data/autocomplete_learned.json`).
+Settings-dependent boxes (CV/Screenshot extraction fields, custom fields) come from *sources* (`default_sources`). `App.autocomplete`
+is the one instance. `ui/autocomplete.py` `attach(widget, field_id, extra=...)` binds an Entry / Combobox / Text (pop-up that never takes
+focus, keys, Space-expansion with Backspace undo, right-click menu); `ui/autocomplete_ui.py` is the *Settings > Autocomplete* panel.
+UI logic is covered by `tests/ui_smoke/autocomplete_ui.py` (fake tkinter).

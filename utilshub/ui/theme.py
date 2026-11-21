@@ -103,7 +103,7 @@ class ThemeManager:
 
     def apply(self) -> None:
         self._after = None
-        s, g = self.settings, self.settings.get
+        g = self.settings.get
         self.dark = self.resolve_mode()
         p = dict(DARK if self.dark else LIGHT)
         if g("ui.high_contrast", False):

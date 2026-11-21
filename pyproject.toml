@@ -35,6 +35,9 @@ dev = [
 [project.scripts]
 utilshub = "utilshub.app:main"
 
+[tool.setuptools.packages.find]
+include = ["utilshub*"]          # tests/, legacy/, assets/ and data/ are not part of the installed package
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

@@ -19,6 +19,8 @@ from ..core.workflow import RunEnv, WorkflowStore, run_workflow
 from ..ui.widgets import FolderEntry, confirm, info, modal
 from .base import Command, Tool
 
+_log = __import__("logging").getLogger(__name__)
+
 
 class AutopilotTool(Tool):
     id = "autopilot"
@@ -26,6 +28,7 @@ class AutopilotTool(Tool):
     icon = "🤖"
     description = "Start or stop every watcher, and run saved workflows automatically when files arrive in a folder."
     order = 90
+    stats_when_closed = True          # the trigger list is loaded in __init__
 
     @classmethod
     def options(cls) -> list[Opt]:
@@ -43,6 +46,9 @@ class AutopilotTool(Tool):
         self.runner = TriggerRunner(self._from_watcher, say=lambda m, lv="info": self._say(m, lv),
                                     max_per_minute=self.settings.get_int("autopilot.max_per_minute", 30))
         self.last: dict[str, str] = {}               # trigger id -> "12:30 Done: 3 files"
+        self._after = None                           # the single refresh timer (never stack a second one)
+        self.settings.subscribe("autopilot.max_per_minute",
+                                lambda k, v: setattr(self.runner, "max_per_minute", max(3, int(v or 30))))
         self.tree = None
         self.rows = None
 
@@ -68,6 +74,8 @@ class AutopilotTool(Tool):
         ttk.Button(tb, text="Edit", command=self.edit_trigger).pack(side="left", padx=4)
         ttk.Button(tb, text="Delete", command=self.delete_trigger).pack(side="left")
         ttk.Button(tb, text="Start / stop", command=self.toggle_selected).pack(side="left", padx=4)
+        ttk.Button(tb, text="Resume paused", command=self.resume_paused).pack(side="left")
+        ttk.Button(tb, text="Files handled…", command=self.show_handled).pack(side="left", padx=4)
         ttk.Button(tb, text="Test (preview)", command=self.test_selected).pack(side="left")
         cols = ("name", "folder", "workflow", "types", "state", "last")
         self.tree = ttk.Treeview(parent, columns=cols, show="headings", selectmode="browse", height=8)
@@ -116,7 +124,25 @@ class AutopilotTool(Tool):
                                                          self.last.get(t.id, "")))
         if sel and self.triggers.get(sel):
             self.tree.selection_set(sel)
-        self.frame.after(3000, lambda: self.frame.winfo_exists() and self.is_current() and self.refresh())
+        if self._after is not None:
+            try:
+                self.frame.after_cancel(self._after)
+            except Exception:
+                _log.debug("ignored error", exc_info=True)
+        self._after = self.frame.after(3000, self._tick)
+
+    def _tick(self) -> None:
+        self._after = None
+        if self.frame is not None and self.frame.winfo_exists() and self.is_current():
+            self.refresh()
+
+    def on_hide(self) -> None:
+        if self._after is not None and self.frame is not None:
+            try:
+                self.frame.after_cancel(self._after)
+            except Exception:
+                _log.debug("ignored error", exc_info=True)
+            self._after = None
 
     def _toggle(self, tool, running: bool) -> None:
         try:
@@ -249,12 +275,21 @@ class AutopilotTool(Tool):
                          log=lambda m, lv="info": bridge.call(self.log, m, lv), cancelled=lambda: job.cancelled,
                          progress=lambda d, t, m="": job.progress(d, t, m),
                          notify=lambda m: bridge.call(self.app.notify, m, "ok"), tool_id=self.id)
-            return run_workflow(wf, [str(p) for p in files], env, preview)
+            report = run_workflow(wf, [str(p) for p in files], env, preview)
+            if not preview:                                    # what the workflow made / renamed must not trigger it again
+                mine = {str(p) for p in files}
+                for out in list(report.files) + list(report.made):
+                    if out not in mine:
+                        self.runner.ignore(out)
+            return report
 
         def done(report) -> None:
             self.last[trig.id] = f"{time.strftime('%H:%M')} {report.summary() if report.ok else report.message}"[:80]
             self.log(f"{trig.name}: {label} - " + (report.summary() if report.ok else report.message),
                      "ok" if report.ok else "error")
+            if self.settings.get_bool("auto.notify_done", True):
+                self.app.notify(f"{trig.name}: {label} - " + (report.summary() if report.ok else report.message),
+                                "ok" if report.ok else "warn")
             self.refresh()
 
         self.app.jobs.submit(work, title=f"{'Preview' if preview else 'Trigger'}: {trig.name}", tool=self.id,
@@ -292,6 +327,31 @@ class AutopilotTool(Tool):
 
     def stop_auto(self) -> None:
         self.runner.stop_all()
+
+    def auto_incomplete(self) -> bool:
+        wanted = [t for t in self.triggers.items if t.enabled and not t.problem()]
+        return any(not self.runner.is_running(t.id) for t in wanted)
+
+    def resume_paused(self) -> None:
+        """Start again every trigger the safety net paused (check what made the loop first)."""
+        paused = [t for t in self.triggers.items if t.id in self.runner.paused]
+        if not paused:
+            info(self.frame, "No trigger is paused.")
+            return
+        if confirm(self.frame, "Resume " + ", ".join(t.name for t in paused) + "?\n\nA trigger is paused when it fired too "
+                   "often - usually because its workflow writes into the folder it watches. Make sure that is not the case."):
+            for t in paused:
+                self.runner.start(t)
+            self.refresh()
+
+    def show_handled(self) -> None:
+        t = self.triggers.get(self._selected_id())
+        if t is None:
+            info(self.frame, "Select a trigger first.")
+            return
+        names = self.runner.handled_names(t.id)
+        info(self.frame, f"'{t.name}' handled {len(names)} file(s) since it started:\n\n" + "\n".join(names[-30:]) if names
+             else f"'{t.name}' has not handled any file since it started.")
 
     def auto_summary(self) -> str:
         return f"{len(self.runner.running_ids())} of {len(self.triggers.items)} folder triggers on"

@@ -32,7 +32,6 @@ class Tool:
     icon = "🧰"
     description = ""
     order = 50
-    accepts = ()                  # file extensions this tool can take via "Send to" (empty = any)
     stats_when_closed = False     # True: Home shows stats() even before the tool was opened (tool must load by itself)
 
     def __init__(self, app) -> None:
@@ -104,9 +103,21 @@ class Tool:
             if not path:
                 return False
             self.put("append_file", path)
+        from ..core.appendfile import flush_pending, pending_path
         try:
+            moved = flush_pending(path)                     # rows parked earlier while the file was locked go first
+            if moved:
+                self.log(f"Added {moved} waiting row(s) to {path}", "ok")
             n = append_records(path, records, timestamp=timestamp)
         except AppendError as exc:
+            if quiet:                                       # unattended: never lose the row and never open a window per file
+                try:
+                    append_records(pending_path(path), records, timestamp=timestamp)
+                    self.log(f"{exc} The row was kept in {pending_path(path).name} and will be added later.", "warn")
+                    self._retry_pending(path)
+                    return True
+                except AppendError:
+                    pass
             self.log(str(exc), "error")
             error(self.app.root, str(exc))
             return False
@@ -115,11 +126,34 @@ class Tool:
         self.log(f"Added {n} row(s) to {path}", "ok")
         return True
 
+    def _retry_pending(self, path: str, delay_ms: int = 30_000) -> None:
+        """Try again in a while to move the parked rows into the real file (e.g. once Excel is closed)."""
+        if getattr(self, "_retry_set", None) is None:
+            self._retry_set = set()
+        if path in self._retry_set:
+            return
+        self._retry_set.add(path)
+
+        def attempt() -> None:
+            from ..core.appendfile import AppendError as _Err, flush_pending
+            self._retry_set.discard(path)
+            try:
+                n = flush_pending(path)
+                if n:
+                    self.log(f"Added {n} waiting row(s) to {path}", "ok")
+            except _Err:
+                self._retry_pending(path, min(delay_ms * 2, 600_000))
+        self.app.root.after(delay_ms, attempt)
+
     # ------------------------------------------------------------------ automation
     def can_automate(self) -> bool:
         return False
 
     def auto_running(self) -> bool:
+        return False
+
+    def auto_incomplete(self) -> bool:
+        """True while it is running only in part (e.g. one of several triggers stopped or paused): 'Start all' finishes the job."""
         return False
 
     def start_auto(self) -> None: ...

@@ -227,6 +227,7 @@ class Flow:
         self._work: Path | None = None
         self._tmp: Path | None = None
         self.started = datetime.now()
+        self.warned = False
 
     # ---- folders
     @property
@@ -260,6 +261,8 @@ class Flow:
 
     # ---- helpers for bricks
     def log(self, message: str, level: str = "info") -> None:
+        if level == "warn":
+            self.warned = True                          # the engine marks the running step as 'warn'
         self.env.log(message, level)
 
     def check_cancel(self) -> None:
@@ -356,6 +359,7 @@ def run_workflow(wf: Workflow, inputs: list[str | Path] | None = None, env: RunE
             env.progress(n, len(active), b.title)
             try:
                 flow.check_cancel()
+                flow.warned = False
                 if preview and not b.virtual_ok and not b.source and any(f in flow.virtual for f in flow.files):
                     res.status, res.n_out = "skipped", len(flow.files)
                     res.message = "preview stops here: these files only exist once the earlier step really runs"
@@ -386,7 +390,7 @@ def run_workflow(wf: Workflow, inputs: list[str | Path] | None = None, env: RunE
                 report.ok, report.message = False, f"'{b.title}' failed: {res.message}"
                 break
             res.seconds = time.monotonic() - t0
-            if "skipped" in res.message.lower() or "could not" in res.message.lower():
+            if flow.warned:                                   # a brick logged a warning (not guessed from its message text)
                 res.status = "warn"
             report.steps.append(res)
             if on_step:
@@ -701,6 +705,8 @@ def b_merge_pdf(flow: Flow, p: Params):
     flow.written.append(out)
     flow.files = [out]
     extra = f", {len(res.skipped)} skipped" if res.skipped else ""
+    if res.skipped:
+        flow.log(f"merge: {len(res.skipped)} file(s) could not be added", "warn")
     return f"{res.pages} page(s) from {_plural(len(res.starts))}{extra}"
 
 
@@ -896,6 +902,8 @@ def b_to_folder(flow: Flow, p: Params):
         flow.move_state(f, target)
         out.append(target)
     flow.files = out
+    if skipped:
+        flow.log(f"{_plural(skipped)} skipped (the name already exists or the policy says skip)", "warn")
     verb = "moved" if action == "move" else "copied"
     return f"{_plural(len(out))} {verb}" + (f", {skipped} skipped" if skipped else "") + (" (preview)" if flow.preview else "")
 

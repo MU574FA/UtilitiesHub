@@ -182,10 +182,26 @@ class HomeTool(Tool):
 
     # ------------------------------------------------------------------ dropped files
     def _dropped(self, paths: list[str]) -> None:
+        if not paths:
+            return
+        if self.combo is not None:
+            for t in self._targets():
+                if f"{t.icon} {t.title}" == self.target.get():
+                    self.app.send_to(t.id, paths)
+                    return
+        self._choose_target(paths)
+
+    def _choose_target(self, paths: list[str]) -> None:
+        """No target picked (drop zone hidden, or nothing selected): ask where the files should go."""
+        m = tk.Menu(self.app.root, tearoff=False)
+        m.add_command(label=f"Send {len(paths)} file(s) to…", state="disabled")
+        m.add_separator()
         for t in self._targets():
-            if f"{t.icon} {t.title}" == self.target.get():
-                self.app.send_to(t.id, paths)
-                return
+            m.add_command(label=f"{t.icon} {t.title}", command=lambda i=t.id: self.app.send_to(i, list(paths)))
+        try:
+            m.tk_popup(self.app.root.winfo_pointerx(), self.app.root.winfo_pointery())
+        finally:
+            m.grab_release()
 
     def accept_files(self, paths: list[str]) -> None:
         self._dropped(paths)

@@ -12,7 +12,7 @@ import shutil
 import threading
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -59,15 +59,17 @@ class JournalEntry:
     dest: str
     note: str = ""
     undone: bool = False
+    backup: str = ""            # a file this operation replaced (policy "overwrite"): undo puts it back
 
 
 class Journal:
     """Append-only JSON-lines log of file operations (newest last) with undo support."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, max_entries: int = 5000) -> None:
         self.path = path
         self._lock = threading.RLock()
         self._entries: list[JournalEntry] = []
+        self.max_entries = max_entries
         self._load()
 
     def _load(self) -> None:
@@ -79,6 +81,13 @@ class Journal:
                     self._entries.append(JournalEntry(**json.loads(line)))
         except (OSError, ValueError, TypeError):
             log.exception("Could not read the journal")
+            return
+        if len(self._entries) > self.max_entries:                  # keep the newest ones: the file must not grow forever
+            self._entries = self._entries[-self.max_entries:]
+            try:
+                self._rewrite()
+            except OSError:
+                log.exception("Could not trim the journal")
 
     def _rewrite(self) -> None:
         tmp = self.path.with_suffix(".tmp")
@@ -86,9 +95,10 @@ class Journal:
                        encoding="utf-8")
         tmp.replace(self.path)
 
-    def record(self, tool: str, action: str, src: Path | str, dest: Path | str, note: str = "") -> JournalEntry:
+    def record(self, tool: str, action: str, src: Path | str, dest: Path | str, note: str = "",
+               backup: Path | str = "") -> JournalEntry:
         entry = JournalEntry(uuid.uuid4().hex[:10], datetime.now().isoformat(timespec="seconds"), tool, action,
-                             str(src), str(dest), note)
+                             str(src), str(dest), note, backup=str(backup) if backup else "")
         with self._lock:
             self._entries.append(entry)
             try:
@@ -134,6 +144,9 @@ class Journal:
             src.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(dest), str(src))
             msg = f"Moved {dest.name} back to {src.parent}"
+        if entry.backup and Path(entry.backup).exists() and not dest.exists():
+            shutil.move(entry.backup, str(dest))                    # bring back the file this operation had replaced
+            msg += " (the file it replaced is back too)"
         with self._lock:
             entry.undone = True
             self._rewrite()
@@ -195,12 +208,28 @@ def transfer(src: Path, dest_dir: Path, stem: str | None = None, action: str = "
                             if stem is not None else src.suffix, policy)
     if target is None:
         return None
+    backup: Path | None = None
     if target.exists():
-        target.unlink()
+        backup = _keep_replaced(target)                           # "overwrite" never destroys: the old file is kept aside
     (shutil.copy2 if action == "copy" else shutil.move)(str(src), str(target))
     if journal is not None:
-        journal.record(tool, "copy" if action == "copy" else "move", src, target, note)
+        journal.record(tool, "copy" if action == "copy" else "move", src, target, note, backup=backup or "")
     return target
+
+
+def _keep_replaced(target: Path) -> Path | None:
+    """Move a file that is about to be replaced into <data>/replaced (undo and manual recovery stay possible)."""
+    from .settings import data_dir
+    try:
+        keep = data_dir() / "replaced"
+        keep.mkdir(parents=True, exist_ok=True)
+        saved = keep / f"{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:4]}-{target.name}"
+        shutil.move(str(target), str(saved))
+        return saved
+    except OSError:
+        log.exception("Could not keep %s before replacing it", target)
+        target.unlink()
+        return None
 
 
 def rename_in_place(src: Path, new_name: str, journal: Journal | None = None, tool: str = "") -> Path:

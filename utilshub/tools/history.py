@@ -6,6 +6,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, ttk
 
+from ..core.sheets import formula_safe
 from ..core.system import open_path
 from ..ui.widgets import LogView, confirm, error, info
 from .base import Tool
@@ -17,6 +18,7 @@ class HistoryTool(Tool):
     icon = "↶"
     description = "Every file move/copy/rename, with undo, and the activity log."
     order = 95
+    stats_when_closed = True          # the journal is loaded by the app, so the count is always known
 
     @classmethod
     def pages(cls):
@@ -81,6 +83,9 @@ class HistoryTool(Tool):
                                                           "undone" if e.undone else ""))
         self.count.configure(text=f"{shown} entr{'y' if shown == 1 else 'ies'}")
 
+    def stats(self) -> dict:
+        return {"Can be undone": sum(1 for e in self.app.journal.entries() if not e.undone and e.action in ("move", "copy", "rename"))}
+
     def on_show(self) -> None:
         self.refresh()
 
@@ -144,7 +149,7 @@ class HistoryTool(Tool):
                 w = csv.writer(fh)
                 w.writerow(["time", "tool", "action", "from", "to", "state"])
                 for iid in self.tree.get_children():
-                    w.writerow(self.tree.item(iid, "values"))
+                    w.writerow([formula_safe(str(v)) for v in self.tree.item(iid, "values")])
         except OSError as exc:
             error(self.frame, f"Could not write the file: {exc}")
             return

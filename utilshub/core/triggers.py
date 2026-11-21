@@ -119,8 +119,20 @@ class TriggerRunner:
         self._watchers: dict[str, FolderWatcher] = {}
         self._hits: dict[str, deque] = {}
         self._handled: dict[str, set] = {}
+        self._order: dict[str, deque] = {}
+        self._ignored: dict[str, float] = {}           # path -> when (ignored for 10 minutes)
         self._lock = threading.Lock()
         self.paused: set[str] = set()                    # tripped the rate limit
+
+    def handled_names(self, tid: str) -> list[str]:
+        """Names of the files this trigger handled since it started (newest last)."""
+        with self._lock:
+            return [Path(k[0]).name for k in self._order.get(tid, [])]
+
+    def ignore(self, path: Path | str) -> None:
+        """Never run a trigger on this file: it was made by a workflow (stops a workflow from re-triggering itself)."""
+        with self._lock:
+            self._ignored[str(path)] = time.monotonic()
 
     def is_running(self, tid: str) -> bool:
         w = self._watchers.get(tid)
@@ -138,6 +150,7 @@ class TriggerRunner:
         self.paused.discard(trig.id)
         self._hits[trig.id] = deque()
         self._handled[trig.id] = set()
+        self._order[trig.id] = deque(maxlen=500)
         w = FolderWatcher(Path(trig.folder), parse_extensions(trig.extensions), max(0.0, float(trig.quiet_seconds)),
                           lambda path, t=trig: self._on_file(t, path), process_existing=trig.process_existing,
                           recursive=trig.recursive)
@@ -167,7 +180,7 @@ class TriggerRunner:
             return
         now = time.monotonic()
         with self._lock:
-            if trig.id in self.paused or key in self._handled.setdefault(trig.id, set()):
+            if trig.id in self.paused or now - self._ignored.get(key[0], -1e9) < 600 or key in self._handled.setdefault(trig.id, set()):
                 return
             hits = self._hits.setdefault(trig.id, deque())
             while hits and now - hits[0] > 60:
@@ -178,6 +191,10 @@ class TriggerRunner:
             else:
                 hits.append(now)
                 self._handled[trig.id].add(key)
+                order = self._order.setdefault(trig.id, deque(maxlen=500))
+                if len(order) == order.maxlen:                    # keep memory bounded: forget the oldest key
+                    self._handled[trig.id].discard(order[0])
+                order.append(key)
                 tripped = False
         if tripped:
             self.stop(trig.id)

@@ -25,12 +25,11 @@ from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
 
 from . import aimode, aitasks
 from .fuzzy import FuzzyIndex, KeywordMatcher
 from .llm import LlmConfig, LlmError
-from .rules import (EMAIL_RE, LEVELS, Rule, _detect_email, _detect_phone, evaluate_rule)
+from .rules import (LEVELS, Rule, _detect_email, _detect_phone, evaluate_rule)
 from .textutil import slugify, unique
 
 log = logging.getLogger(__name__)

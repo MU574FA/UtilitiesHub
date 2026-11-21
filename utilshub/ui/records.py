@@ -13,8 +13,8 @@ from tkinter import filedialog, ttk
 from typing import Any, Callable
 
 from ..core.rules import (KIND_LABELS, KINDS, LEVEL_HELP, LEVEL_LABELS, LEVELS, MATCH_MODES, REGEX_SNIPPETS,
-                          RULE_LIBRARY, SCOPES, BUILTIN_DETECTORS, Rule, evaluate_rule)
-from .widgets import (ScrollFrame, Tooltip, ask_text, confirm, copy_to_clipboard, error, info, modal, style_text)
+                          RULE_LIBRARY, SCOPES, Rule, evaluate_rule)
+from .widgets import (Tooltip, ask_text, confirm, copy_to_clipboard, error, modal, style_text)
 
 
 @dataclass

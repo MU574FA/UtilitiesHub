@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import re
 import tkinter as tk
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from tkinter import filedialog, ttk
 from typing import Callable
 
 from ..core.matching import find_internal_duplicates, match_lists, one_to_one, status_for
 from ..core.schema import Opt
+from ..ui.autocomplete import attach as autocomplete
 from ..core.sheets import Book, SheetError, Table, cell_text, guess_name_column, load_book, write_csv, write_xlsx
 from ..ui.widgets import DataTable, FolderEntry, error, info, modal, style_text
 from .base import Command, Tool
@@ -335,7 +336,9 @@ class NameMatcher(Tool):
         win, f = modal(self.frame, f"Match for: {r.a_name}", 520, 420)
         ttk.Label(f, text="Pick the right name from list B (type to search):").pack(anchor="w")
         q = tk.StringVar()
-        ttk.Entry(f, textvariable=q).pack(fill="x", pady=4)
+        search_box = ttk.Entry(f, textvariable=q)
+        search_box.pack(fill="x", pady=4)
+        autocomplete(search_box, "match.search")
         lb = tk.Listbox(f, activestyle="none", height=12)
         self.app.theme.style_listbox(lb)
         lb.pack(fill="both", expand=True)
@@ -405,7 +408,7 @@ class NameMatcher(Tool):
 
     def export_rows(self) -> tuple[list[str], list[list]]:
         th = self.th.get() / 100
-        t = self.pa.table()
+        self.pa.table()
         headers = ["Name in A", "Matched name in B", "Score %", "Status"]
         rows = [[r.a_name, self.b[r.chosen] if r.chosen is not None else "", round(r.score * 100) if r.chosen is not None else "",
                  STATUS_LABEL[r.status(th, self._strong())]] for r in self.rows]
@@ -420,7 +423,7 @@ class NameMatcher(Tool):
         if not path:
             return
         headers, rows = self.export_rows()
-        th = self.th.get() / 100
+        self.th.get() / 100
         matched_b = {r.chosen for r in self.rows if r.chosen is not None}
         only_b = [[n] for j, n in enumerate(self.b) if j not in matched_b]
         if path.lower().endswith(".csv"):

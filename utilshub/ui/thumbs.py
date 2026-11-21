@@ -173,7 +173,7 @@ class ThumbGrid(ttk.Frame):
                           fill=p["fg"], width=self.size, tags=f"c{n}")
             if it.badge:
                 c.create_text(x + 6, y + 6, anchor="nw", text=it.badge[:18], fill=p["accent_fg"], tags=f"c{n}")
-                bb = c.bbox(c.find_withtag("current")) if False else None
+                c.bbox(c.find_withtag("current")) if False else None
             if it.rotation:
                 c.create_text(x + self.size - 4, y + 4, anchor="ne", text=f"↻{it.rotation}°", fill=p["warn"], tags=f"c{n}")
         rows = (len(self.items) + cols - 1) // cols

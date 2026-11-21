@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 from pathlib import Path
 from typing import Callable
@@ -57,11 +58,13 @@ class FolderWatcher:
         self._pending: set[Path] = set()
         self._seen: set[Path] = set()
         self._lock = threading.Lock()
+        self._pool: ThreadPoolExecutor | None = None             # a few threads wait for files to settle (not one per file)
         self.running = False
 
     def start(self) -> None:
         self.folder.mkdir(parents=True, exist_ok=True)
         self._stop.clear()
+        self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="watch-wait")
         existing = self._scan()
         if HAS_WATCHDOG:
             self._observer = Observer()
@@ -79,6 +82,11 @@ class FolderWatcher:
 
     def stop(self) -> None:
         self._stop.set()
+        if self._pool is not None:
+            self._pool.shutdown(wait=False, cancel_futures=True)
+            self._pool = None
+            with self._lock:
+                self._pending.clear()
         if self._observer:
             self._observer.stop()
             self._observer.join(timeout=3)
@@ -110,7 +118,16 @@ class FolderWatcher:
             if path in self._pending:
                 return
             self._pending.add(path)
-        threading.Thread(target=self._wait_and_dispatch, args=(path,), daemon=True).start()
+        pool = self._pool
+        if pool is None:
+            with self._lock:
+                self._pending.discard(path)
+            return
+        try:
+            pool.submit(self._wait_and_dispatch, path)
+        except RuntimeError:                                   # stopped while this event arrived
+            with self._lock:
+                self._pending.discard(path)
 
     def _wait_and_dispatch(self, path: Path) -> None:
         try:

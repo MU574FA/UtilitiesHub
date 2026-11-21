@@ -8,7 +8,6 @@ extra clockwise rotation per page, image straightening, which pages to keep, a b
 """
 from __future__ import annotations
 
-import io
 import os
 import tempfile
 from dataclasses import dataclass, field
@@ -21,8 +20,9 @@ from . import arabic
 from .textutil import has_arabic
 from .imaging import IMAGE_EXTS, apply_fix, open_rgb, rotate_cw, to_jpeg_bytes
 from .office import OFFICE_EXTS, OfficeError, convert, docx_fallback_pdf
-from .ocr import find_libreoffice
 from .settings import temp_dir
+
+_log = __import__("logging").getLogger(__name__)
 
 try:
     import pymupdf as fitz
@@ -172,7 +172,7 @@ def assemble(pieces: list[Piece], out_path: str | Path, opts: AssembleOptions | 
         try:
             out.rewrite_images(dpi_threshold=opts.dpi + 40, dpi_target=opts.dpi, quality=opts.quality)
         except Exception:
-            pass
+            _log.debug("ignored error", exc_info=True)
     pages = len(out)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -277,7 +277,7 @@ def compress_pdf(path: str | Path, out_path: str | Path, target_bytes: int = 0) 
                 try:
                     doc.rewrite_images(dpi_threshold=dpi + 40, dpi_target=dpi, quality=q or 90)
                 except Exception:
-                    pass
+                    _log.debug("ignored error", exc_info=True)
             doc.save(str(out_path), garbage=4, deflate=True, clean=True)
         size = os.path.getsize(out_path)
         if target_bytes <= 0 or size <= target_bytes:

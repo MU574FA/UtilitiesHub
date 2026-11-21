@@ -5,7 +5,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 
 from ..core.schema import Opt
-from ..core.sheets import SheetError, Table, cell_text, load_book, write_csv, write_xlsx
+from ..core.sheets import SheetError, cell_text, write_csv, write_xlsx
 from ..core.syncing import SyncOptions, SyncPlan, apply_plan, build_plan, change_log_rows, shared_columns
 
 from ..ui.widgets import DataTable, error, info

@@ -5,7 +5,7 @@ import threading
 from collections import OrderedDict
 from pathlib import Path
 
-from PIL import Image, ImageSequence
+from PIL import Image
 
 from .imaging import IMAGE_EXTS, open_rgb, rotate_cw
 from .office import OFFICE_EXTS, OfficeError, to_pdf_cached

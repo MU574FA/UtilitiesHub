@@ -28,7 +28,6 @@ class OptionPage(ttk.Frame):
 
     def build(self) -> None:
         section = None
-        body = self
         for opt in self.opts:
             if opt.advanced and not self.show_advanced:
                 continue

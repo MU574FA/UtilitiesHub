@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -151,18 +152,30 @@ def write_xlsx(path: str | Path, sheets: dict[str, list[list[Any]]], header: boo
     return str(path)
 
 
+_NUMBERISH = re.compile(r"^[+-]?[\d\s().,\-]+$")
+
+
+def formula_safe(text: str) -> str:
+    """Stop text read from documents from running as a formula when the file is opened in Excel (CSV injection).
+
+    `=...`, `@...` and `+/-` followed by something that is not number-like get a leading apostrophe;
+    phone numbers such as +964 770 123 4567 and negative numbers are left alone."""
+    if text and (text[0] in "=@\t\r" or (text[0] in "+-" and not _NUMBERISH.match(text))):
+        return "'" + text
+    return text
+
+
 def _excel_safe(value: Any) -> Any:
     if isinstance(value, str):
         value = "".join(ch for ch in value if ch == "\t" or ch == "\n" or ord(ch) >= 32)
-        if value[:1] in ("=", "+", "@") and len(value) > 1:
-            return "'" + value                               # never let text become a formula
+        return formula_safe(value)                           # never let text become a formula
     return value
 
 
 def write_csv(path: str | Path, rows: list[list[Any]], delimiter: str = ",") -> str:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8-sig") as fh:
-        csv.writer(fh, delimiter=delimiter).writerows([[cell_text(c) for c in r] for r in rows])
+        csv.writer(fh, delimiter=delimiter).writerows([[formula_safe(cell_text(c)) for c in r] for r in rows])
     return str(path)
 
 

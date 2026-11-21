@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .core.aimode import MODE_CHOICES
+from .core.autocomplete import AUTOCOMPLETE_OPTS, AUTOCOMPLETE_STATE
 from .core.llm import PROVIDER_CHOICES
 from .core.schema import Opt, Page
 
@@ -32,14 +33,12 @@ GENERAL = [
         section="Window"),
     Opt("window.sidebar_compact", False, "Compact sidebar (icons only)", "bool", section="Window"),
     Opt("window.confirm_exit", True, "Ask before closing while work is running", "bool", section="Window"),
-    Opt("window.minimize_to_tray", False, "Closing the window hides it to the tray (needs pystray)", "bool", section="Window",
-        advanced=True),
     Opt("window.startup_tool", "last", "Open at start", "choice", choices=[("last", "The last tool I used"), ("home", "Home")],
         section="Startup"),
     Opt("window.hidden_tools", [], "Hidden tools (ids)", "list", section="Startup", advanced=True,
         help="Easier: Settings > Home & tools, or right-click a tool in the sidebar. " + TOOL_CHOICES_NOTE),
     Opt("app.toasts", True, "Show pop-up notifications", "bool", section="Notifications"),
-    Opt("app.sound", False, "Beep when a file needs your review", "bool", section="Notifications"),
+    Opt("app.sound", False, "Beep on warnings (e.g. a file needs your review)", "bool", section="Notifications"),
     Opt("app.keep_log_days", 30, "Keep the log file for (days)", "int", min=1, max=365, section="Housekeeping", advanced=True),
 ]
 
@@ -59,8 +58,6 @@ APPEARANCE = [
 
 PREVIEW = [
     Opt("preview.enabled", True, "Show the original file next to the data (previews)", "bool"),
-    Opt("preview.position", "right", "Preview position in review windows", "choice",
-        choices=[("right", "Right of the form"), ("bottom", "Below the form")]),
     Opt("preview.default_zoom", "width", "Default zoom", "choice",
         choices=[("width", "Fit width"), ("page", "Fit whole page")]),
     Opt("preview.max_pages", 8, "Pages shown in a preview", "int", min=1, max=100),
@@ -205,6 +202,11 @@ def _ai_builder(parent, app) -> None:
     build_ai_panel(parent, app)
 
 
+def _autocomplete_builder(parent, app) -> None:
+    from .ui.autocomplete_ui import build_autocomplete_panel
+    build_autocomplete_panel(parent, app)
+
+
 def shared_pages() -> list[Page]:
     return [
         Page("general", "General & window", "⚙", 1, "Window behaviour, startup and notifications.", opts=GENERAL),
@@ -216,6 +218,9 @@ def shared_pages() -> list[Page]:
         Page("auto", "Automation", "🤖", 6, "Autopilot: watch folders and process files without you.", opts=AUTOMATION),
         Page("ai", "AI", "✨", 7, "Optional AI (Ollama, OpenAI-compatible APIs, Anthropic): read scans, fill fields, recognise documents. "
              "Choose per feature: Rules only, AI only, or one then the other.", opts=AI, builder=_ai_builder),
+        Page("autocomplete", "Autocomplete", "⌨", 8, "Suggestions and shortcuts while you type. Every text box has its own "
+             "keywords and shortcuts, and you decide where it is on or off.", opts=AUTOCOMPLETE_OPTS,
+             builder=_autocomplete_builder),
     ]
 
 
@@ -223,4 +228,4 @@ def all_shared_opts() -> list[Opt]:
     out: list[Opt] = []
     for p in shared_pages():
         out.extend(p.opts)
-    return out
+    return out + list(AUTOCOMPLETE_STATE)

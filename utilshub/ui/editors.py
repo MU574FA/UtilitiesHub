@@ -1,11 +1,10 @@
 """Concrete RecordEditors: extraction fields, document types, checks, clipboard formats, link templates."""
 from __future__ import annotations
 
-import tkinter as tk
 from tkinter import ttk
 
 from ..core.doctypes import CHECK_TYPES, Check, DocType
-from ..core.aimode import INHERIT, MODE_CHOICES, MODE_CHOICES_INHERIT
+from ..core.aimode import INHERIT, MODE_CHOICES_INHERIT
 from ..core.fields import ALL_KINDS, FieldSpec, map_error
 from ..core.rules import LEVEL_LABELS, MATCH_MODES, RULE_LIBRARY, Rule
 from ..core.templates import FILTERS

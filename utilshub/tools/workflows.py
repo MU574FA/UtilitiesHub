@@ -15,6 +15,7 @@ from ..core.ocr import OcrConfig
 from ..core.schema import Opt
 from ..core.settings import data_dir
 from ..core.system import open_path
+from ..ui.autocomplete import attach as autocomplete
 from ..core.workflow import (BRICKS, TEMPLATES, Params, RunEnv, Step, StepResult, Workflow, WorkflowStore,
                              check_workflow, export_workflow, import_workflow, run_workflow)
 from ..ui.lego import BrickPalette, BrickStack, BrickView
@@ -39,6 +40,8 @@ class WorkflowsTool(Tool):
                          "Empty = inside the Utils Hub data folder."),
                 Opt("workflows.confirm_changes", True, "Ask before a workflow renames or moves my files", "bool"),
                 Opt("workflows.last", "", "Last workflow opened", "str", advanced=True)]
+
+    stats_when_closed = True          # the store is loaded in __init__, so Home can show the count before the tab is opened
 
     def __init__(self, app) -> None:
         super().__init__(app)
@@ -287,11 +290,15 @@ class WorkflowsTool(Tool):
         ttk.Label(s, text="Click a brick to set it up.", style="Muted.TLabel").pack(anchor="w", pady=(0, 8))
         ttk.Label(s, text="Name").pack(anchor="w")
         name = tk.StringVar(value=self.wf.name)
-        ttk.Entry(s, textvariable=name).pack(fill="x", pady=(0, 6))
+        name_box = ttk.Entry(s, textvariable=name)
+        name_box.pack(fill="x", pady=(0, 6))
+        autocomplete(name_box, "workflows.name")
         name.trace_add("write", lambda *_: self._set_wf("name", name.get()))
         ttk.Label(s, text="What it is for (optional)").pack(anchor="w")
         desc = tk.StringVar(value=self.wf.description)
-        ttk.Entry(s, textvariable=desc).pack(fill="x", pady=(0, 6))
+        desc_box = ttk.Entry(s, textvariable=desc)
+        desc_box.pack(fill="x", pady=(0, 6))
+        autocomplete(desc_box, "workflows.description")
         desc.trace_add("write", lambda *_: self._set_wf("description", desc.get()))
         ttk.Label(s, text="Folder for new files it makes").pack(anchor="w")
         out = tk.StringVar(value=self.wf.output_folder)
@@ -368,6 +375,8 @@ class WorkflowsTool(Tool):
         else:
             var = tk.StringVar(value=str(cur if cur is not None else ""))
             w = ttk.Entry(parent, textvariable=var)
+            if prm.kind == "str":
+                autocomplete(w, "workflows.param")
             var.trace_add("write", lambda *_: put(self._typed(prm.kind, var.get())))
         w.pack(fill="x")
         if prm.help:

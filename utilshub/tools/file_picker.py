@@ -4,13 +4,13 @@ from __future__ import annotations
 import hashlib
 import re
 import tkinter as tk
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog, ttk
 
 from ..core.fileops import transfer
 from ..core.fuzzy import name_score, prep_name
-from ..core.schema import Opt, Page
+from ..core.schema import Opt
 from ..core.sheets import SheetError, cell_text, load_book, write_xlsx
 from ..core.system import open_path, reveal
 from ..core.textutil import human_size, normalise_name, parse_ext_list, split_list

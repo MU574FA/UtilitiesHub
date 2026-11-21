@@ -29,6 +29,8 @@ from ..ui.visa_dialogs import (FollowupDialog, ImportDialog, KindDialog, PagePic
 from ..ui.widgets import DataTable, ask_text, confirm, copy_to_clipboard, error, info, style_text, tip
 from .base import Command, Tool
 
+_log = __import__("logging").getLogger(__name__)
+
 log = logging.getLogger(__name__)
 
 # key, heading, width, anchor
@@ -343,7 +345,7 @@ class VisaTracker(Tool):
             try:
                 menu.grab_release()
             except Exception:
-                pass
+                _log.debug("ignored error", exc_info=True)
 
     # ------------------------------------------------------------------ table
     def _apply_columns(self) -> None:

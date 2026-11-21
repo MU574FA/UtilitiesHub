@@ -16,7 +16,7 @@ import logging
 import os
 from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import Callable
 
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 

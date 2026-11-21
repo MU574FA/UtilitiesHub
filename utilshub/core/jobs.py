@@ -13,6 +13,7 @@ Callbacks (on_done / on_error / on_progress) always run on the Tk thread.
 """
 from __future__ import annotations
 
+import collections
 import itertools
 import logging
 import queue
@@ -94,7 +95,17 @@ class JobRunner:
         self.pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="job")
         self.jobs: dict[int, Job] = {}
         self.listeners: list[Callable[[Job], None]] = []
-        self._serial_locks: dict[str, threading.Lock] = {}
+        self._lock = threading.Lock()
+        self._serial_busy: set[str] = set()
+        self._serial_waiting: dict[str, collections.deque] = {}
+        self._progress_cbs: dict[int, Callable[[Job], None]] = {}
+
+    def resize(self, workers: int) -> None:
+        """Change how many jobs run at once (takes effect for new work)."""
+        try:
+            self.pool._max_workers = max(1, int(workers))          # ThreadPoolExecutor starts threads lazily up to this
+        except Exception:
+            log.debug("could not resize the job pool", exc_info=True)
 
     def on_change(self, callback: Callable[[Job], None]) -> None:
         self.listeners.append(callback)
@@ -102,6 +113,9 @@ class JobRunner:
     def _changed(self, job: Job) -> None:
         for cb in list(self.listeners):
             self.bridge.call(cb, job)
+        mine = self._progress_cbs.get(job.id)
+        if mine is not None:
+            self.bridge.call(mine, job)
 
     def active(self) -> list[Job]:
         return [j for j in self.jobs.values() if j.status in ("queued", "running")]
@@ -116,11 +130,10 @@ class JobRunner:
         """Queue `fn(job)`.  Jobs with the same `serial_key` run one at a time (e.g. OCR of one tool)."""
         job = Job(next(_ids), title, tool, _bridge=self.bridge, _runner=self)
         self.jobs[job.id] = job
-        lock = self._serial_locks.setdefault(serial_key, threading.Lock()) if serial_key else None
+        if on_progress:
+            self._progress_cbs[job.id] = on_progress
 
         def run() -> None:
-            if lock:
-                lock.acquire()
             try:
                 if job.cancelled:
                     job.status = "cancelled"
@@ -138,22 +151,50 @@ class JobRunner:
                 if on_error:
                     self.bridge.call(on_error, job.error)
             finally:
-                if lock:
-                    lock.release()
                 self._changed(job)
                 self.bridge.call(self._cleanup, job.id)
+                if serial_key:
+                    self._next_serial(serial_key)
 
-        if on_progress:
-            self.listeners.append(lambda j, cb=on_progress, mine=job.id: cb(j) if j.id == mine else None)
         self._changed(job)
+        if serial_key:
+            # one job per key at a time WITHOUT parking a worker thread on a lock: the rest wait in a queue
+            with self._lock:
+                if serial_key in self._serial_busy:
+                    self._serial_waiting.setdefault(serial_key, collections.deque()).append(run)
+                    return job
+                self._serial_busy.add(serial_key)
         self.pool.submit(run)
         return job
 
+    def _next_serial(self, key: str) -> None:
+        with self._lock:
+            queue = self._serial_waiting.get(key)
+            if queue:
+                nxt = queue.popleft()
+            else:
+                self._serial_busy.discard(key)
+                self._serial_waiting.pop(key, None)
+                return
+        try:
+            self.pool.submit(nxt)
+        except RuntimeError:                                  # pool already shut down
+            pass
+
     def _cleanup(self, job_id: int) -> None:
+        """UI thread: forget a finished job after 30 s (no thread timers, so quitting is never delayed)."""
         job = self.jobs.get(job_id)
         if job and job.status not in ("queued", "running"):
-            threading.Timer(30, lambda: self.jobs.pop(job_id, None)).start()
+            def drop() -> None:
+                self.jobs.pop(job_id, None)
+                self._progress_cbs.pop(job_id, None)
+            try:
+                self.bridge.root.after(30_000, drop)
+            except Exception:
+                drop()
 
     def shutdown(self) -> None:
         self.cancel_all()
+        with self._lock:
+            self._serial_waiting.clear()
         self.pool.shutdown(wait=False, cancel_futures=True)

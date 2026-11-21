@@ -25,7 +25,7 @@ def parse_drop(root: tk.Misc, data: str) -> list[str]:
     try:
         return list(root.tk.splitlist(data))
     except tk.TclError:
-        return re.findall(r"\{([^}]*)\}|(\S+)", data)
+        return [a or b for a, b in re.findall(r"\{([^}]*)\}|(\S+)", data)]
 
 
 def make_drop_target(widget: tk.Misc, callback: Callable[[list[str]], None]) -> bool:

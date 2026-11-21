@@ -27,9 +27,10 @@ from ..core.system import open_path, reveal
 from ..core.templates import base_values, render_clipboard, render_filename, render_folder, render_link
 from ..core.textutil import parse_ext_list
 from ..core.watcher import FolderWatcher
+from ..ui.autocomplete import attach as autocomplete
 from ..ui.dnd import DropZone
 from ..ui.viewer import PageViewer
-from ..ui.widgets import DataTable, FolderEntry, ScrollFrame, Tooltip, confirm, copy_to_clipboard, error, info, style_text
+from ..ui.widgets import DataTable, FolderEntry, Tooltip, confirm, copy_to_clipboard, error, info, style_text
 from .base import Command, Tool
 
 DEFAULT_EXTS = "pdf, docx, doc, txt, jpg, jpeg, png"
@@ -82,6 +83,7 @@ class FieldForm(ttk.Frame):
             var = tk.StringVar(value=join_values(values.get(s.key, []), s))
             box = ttk.Combobox(self, textvariable=var, values=values.get(s.key, []))
             box.grid(row=r, column=1, sticky="ew", pady=3)
+            autocomplete(box, f"field.{s.key}")
             var.trace_add("write", lambda *_: self._changed())
             self.vars[s.key], self.boxes[s.key], self.labels[s.key] = var, box, lbl
             if s.kind == "map":
@@ -329,7 +331,7 @@ class ReviewDialog(tk.Toplevel):
         name = (fields.get("name") or [""])[0]
         chk = self.tool.registry().check(name) if name else None
         if chk and chk.status in ("exact", "similar"):
-            best = chk.best
+            chk.best
             self.reg_lbl.configure(foreground=p["err"] if chk.status == "exact" else p["warn"],
                                    text=("⚠ Already in the list: " if chk.status == "exact" else "⚠ Looks similar to: ")
                                    + ", ".join(f"{m.name} ({m.score:.0%})" for m in chk.matches[:3]))
@@ -374,7 +376,6 @@ class CvSorter(Tool):
     icon = "📄"
     order = 10
     description = "Watch a folder of CVs, extract name / contact / job fields, review and file them automatically."
-    accepts = ()
 
     @classmethod
     def options(cls) -> list[Opt]:
@@ -456,7 +457,7 @@ class CvSorter(Tool):
             # e.g.  C:/Archive/{interviewer}/{name}  creates nested sub-folders.
             if re.search(r"\{[A-Za-z_]\w*", d) and fields is not None:
                 vals = base_values(fields)
-                from ..core.templates import render as _render, FILTERS
+                from ..core.templates import FILTERS
                 # Render; sanitize each segment but preserve the separators.
                 def _safe_seg(m: re.Match) -> str:
                     key = m.group(1)
@@ -477,6 +478,29 @@ class CvSorter(Tool):
             return Path(d)
         w = self.get("watch_folder")
         return Path(w) / "Sorted" if w else None
+
+    def in_dest(self, p: Path) -> bool:
+        """True for a file that is already inside the destination (also when the destination has {placeholders}:
+        then the fixed part in front of the first placeholder counts), so our own output is never read again."""
+        d = (self.get("dest_folder") or "").strip()
+        if d:
+            fixed = re.split(r"\{", d, 1)[0]
+            if "{" in d:
+                fixed = re.sub(r"[^/\\]*$", "", fixed)                # keep whole folders only
+            guard = Path(fixed) if fixed.strip() else None
+        else:
+            w = self.get("watch_folder")
+            guard = Path(w) / "Sorted" if w else None
+        if guard is None:
+            return False
+        try:
+            g, f = guard.resolve(), p.resolve()
+            w = Path(self.get("watch_folder") or "").resolve() if self.get("watch_folder") else None
+        except OSError:
+            return False
+        if w is not None and g == w:                               # the destination is the watched folder itself
+            return f.parent != g and g in f.parents
+        return g in f.parents
 
     def stem_for(self, item: Item, fields: dict[str, list[str]]) -> str:
         return render_filename(self.get("name_template") or "{name}", fields, item.path, fallback=item.path.stem)
@@ -550,7 +574,7 @@ class CvSorter(Tool):
         if mode == "always" and it.text.strip() or mode == "clean" and not it.problems:
             fields = {k: v[:1] for k, v in it.candidates.items() if v}
             it.auto = True
-            if self.save(it, fields):
+            if self.save(it, fields, quiet=True):
                 self.counts["auto"] += 1
                 return
         self.log(f"{it.path.name}: needs review ({'; '.join(it.problems) or 'review mode'})", "warn")
@@ -559,24 +583,32 @@ class CvSorter(Tool):
         if self.get("popup") and (self.dialog is None or not self.dialog.winfo_exists()):
             self.open_review(it)
 
-    def save(self, it: Item, fields: dict[str, list[str]]) -> bool:
+    def save(self, it: Item, fields: dict[str, list[str]], quiet: bool = False) -> bool:
+        """File one CV.  `quiet`: unattended (auto-confirm) - problems go to the log and the CV waits for review, no pop-ups."""
         dest = self.dest(fields)
         if dest is None:
-            error(self.app.root, "Choose a folder to watch or a destination folder first.")
+            if quiet:
+                self.log(f"{it.path.name}: choose a destination folder first - left for review", "warn")
+            else:
+                error(self.app.root, "Choose a folder to watch or a destination folder first.")
             return False
         try:
-            if it.rotations:
-                if it.path.suffix.lower() == ".pdf":
-                    rotate_pdf_pages(it.path, it.rotations, it.path)
-                elif it.rotations.get(0):
-                    rotate_image_file(it.path, it.rotations[0])
             stem = self.stem_for(it, fields)
             sub = render_folder(self.get("folder_template") or "", base_values(fields, it.path))
             target = transfer(it.path, dest / sub, stem, self.get("action"), self.get("conflict"), self.app.journal, self.id,
                               note=(fields.get("name") or [""])[0])
+            if target is not None and it.rotations:                     # turn the FILED file: the original is never edited
+                try:
+                    if target.suffix.lower() == ".pdf":
+                        rotate_pdf_pages(target, it.rotations, target)
+                    elif it.rotations.get(0):
+                        rotate_image_file(target, it.rotations[0])
+                except Exception as exc:
+                    self.log(f"{target.name}: filed, but the page rotation could not be applied - {exc}", "warn")
         except Exception as exc:
             self.log(f"{it.path.name}: could not save - {exc}", "error")
-            error(self.app.root, f"Could not save {it.path.name}:\n{exc}")
+            if not quiet:
+                error(self.app.root, f"Could not save {it.path.name}:\n{exc}")
             return False
         if target is None:
             it.status, it.saved_as = "skipped", ""
@@ -687,8 +719,12 @@ class CvSorter(Tool):
             self.app.notify("No supported files", "warn")
             return
         if not self.get("dest_folder") and not self.get("watch_folder"):
-            first = files[0].parent
-            self.put("watch_folder", str(first))
+            # never guess: filing into a folder next to the dropped files would surprise the user (and auto-confirm would run)
+            chosen = filedialog.askdirectory(title="Where should the sorted CVs be saved?", parent=self.app.root)
+            if not chosen:
+                self.app.notify("Choose a destination folder first (Settings > CV Sorter)", "warn")
+                return
+            self.put("dest_folder", chosen)
         for f in files:
             self.submit(f)
 
@@ -700,8 +736,7 @@ class CvSorter(Tool):
         files = expand_paths([folder], self.extensions()) if self.get("recursive") else \
             [f for f in sorted(Path(folder).iterdir()) if f.is_file() and f.suffix.lower() in self.extensions()
              and not f.name.startswith(("~$", "."))]
-        dest = self.dest()
-        files = [f for f in files if dest is None or dest not in f.parents]
+        files = [f for f in files if not self.in_dest(f)]
         for f in files:
             self.submit(f)
         self.log(f"Queued {len(files)} file(s)", "info")
@@ -720,10 +755,9 @@ class CvSorter(Tool):
         if not folder.is_dir():
             self.log("Watch folder does not exist", "error")
             return
-        dest = self.dest()
 
         def on_file(p: Path) -> None:
-            if dest is not None and dest in p.parents:
+            if self.in_dest(p):
                 return
             self.app.bridge.call(self.submit, p)
 

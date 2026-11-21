@@ -40,6 +40,8 @@ from .imaging import FITZ_LOCK as _FITZ_LOCK
 from .imaging import IMAGE_EXTS
 from .textutil import arabic_fold, fold_accents, normalise
 
+_log = __import__("logging").getLogger(__name__)
+
 try:
     import numpy as np
 except ImportError:                                         # optional: only a speed-up / the strict check
@@ -184,7 +186,7 @@ def gray_thumb(path: str | Path, kind: str, page: int = 0, size: int = 256):
             try:
                 im.draft("L", (size * 2, size * 2))             # JPEG: decode at reduced size (much faster)
             except Exception:
-                pass
+                _log.debug("ignored error", exc_info=True)
             im = _flatten_alpha(ImageOps.exif_transpose(im))
             g = im.convert("L")
         g.thumbnail((size, size))
