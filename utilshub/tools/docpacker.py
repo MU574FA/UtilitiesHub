@@ -10,6 +10,8 @@ from tkinter import filedialog, ttk
 from ..core import aidocs, ocr, whatsapp as wa
 from ..core.aidocs import AiContext, detect_groups  # noqa: F401  (detect_groups is re-exported here)
 from ..core.aitasks import FieldAsk
+from ..core.candidate_lookup import find_candidate
+from ..core.sheets import SheetError
 from ..core.docpack_util import compress_at_least, custom_keys, draw_cover, page_info  # noqa: F401  (re-exported)
 from ..core.dates import parse_any_date
 from ..core.doctypes import CheckContext, DocType, default_doctypes, run_check
@@ -23,7 +25,6 @@ from ..core.templates import render, render_folder, tidy_filename
 from ..core.textutil import format_page_ranges, parse_page_ranges
 from ..core.textutil import slugify
 from ..ui.autocomplete import attach as autocomplete
-from ..ui.dnd import DropZone
 from ..ui.thumbs import ThumbGrid, ThumbItem
 from ..ui.viewer import PageViewer
 from ..ui.whatsapp_import import WhatsAppImport
@@ -96,6 +97,14 @@ class DocPacker(Tool):
                 section="Documents & checks"),
             Opt("docpacker.date_checks", True, "Run date based checks (age of letters, passport validity)", "bool",
                 section="Documents & checks"),
+            Opt("docpacker.info_sheet", "", "Candidates sheet (.xlsx / .csv)", "file", section="Candidate info",
+                filetypes=[("Spreadsheets", "*.xlsx *.xlsm *.csv"), ("All", "*.*")],
+                help="The 👤 Candidate info button looks the name up in this sheet and shows the row in a pop-up."),
+            Opt("docpacker.info_tab", "", "Tab name (empty = first tab)", "str", section="Candidate info"),
+            Opt("docpacker.info_name_column", "", "Name column heading (empty = find it automatically)", "str",
+                section="Candidate info"),
+            Opt("docpacker.info_header_row", 1, "Row that holds the column headings", "int", min=1, max=50,
+                section="Candidate info"),
             Opt("docpacker.recursive", True, "Look inside sub-folders when adding a folder", "bool", section="Adding files"),
             Opt("docpacker.include_unassigned", False, "Also put unrecognised files at the end of the package", "bool",
                 section="Package"),
@@ -161,39 +170,46 @@ class DocPacker(Tool):
         self._wa_dirs: set[str] = set()                         # unzipped WhatsApp folders still in use
         self._wa_split: list[str] = []                          # files to open the split view for once they are read
         self._wa_sources: dict[str, str] = {}                   # path -> "from Ahmed, 14 Jan 10:02"
+        self._import_dirs: dict[str, bool] = {}                 # folder files were imported from -> look in sub-folders too
         try:
             wa.purge_old(max(1, self.settings.get_int("docpacker.wa_keep_days", 3)))
         except Exception:                                       # a stuck folder must not stop the tool
             _log.debug("ignored error", exc_info=True)
-        self.status_var = tk.StringVar(value="Add the person's files (drop them anywhere in the window).")
+        self.status_var = tk.StringVar(value="Add the person's files (use Add files / Add folder).")
         self.ai_note_var = tk.StringVar(value="")
         self.ai_filled: dict[str, str] = {}                     # cover box key -> value the AI put there (until you edit it)
         self._ai_after = None
         self._ai_warned: set = set()
         self.last_output = ""
 
-        top = ttk.Frame(parent)
-        top.pack(fill="x")
-        for label, var, w, ac_id in (("Full name", self.name_var, 26, "docpacker.name"), ("Surname", self.surname_var, 16, "docpacker.surname"),
-                                     ("Joining date (YYYY-MM-DD)", self.join_var, 14, "")):
-            ttk.Label(top, text=label).pack(side="left", padx=(0, 4))
-            e = ttk.Entry(top, textvariable=var, width=w)
-            e.pack(side="left", padx=(0, 12))
-            if ac_id:
-                autocomplete(e, ac_id)
-            var.trace_add("write", lambda *_: self._ctx_changed())
-        ttk.Button(top, text="Add files…", command=self.pick_files).pack(side="right", padx=2)
-        ttk.Button(top, text="💬 WhatsApp ZIP…", command=lambda: self.open_whatsapp()).pack(side="right", padx=2)
-        ttk.Button(top, text="Add folder…", command=self.pick_folder).pack(side="right", padx=2)
-        ttk.Button(top, text="Clear", command=self.clear).pack(side="right", padx=2)
-        ttk.Button(top, text="Re-check", command=self.recheck).pack(side="right", padx=2)
-        ttk.Button(top, text="✨ Fill from documents", command=self.autofill_cover).pack(side="right", padx=2)
+        # -- toolbar (actions, grouped) ------------------------------------------------------------
+        bar = ttk.Frame(parent)
+        bar.pack(fill="x")
+        for text, cmd, tip in (("Add files…", self.pick_files, "Add the person's documents"),
+                               ("Add folder…", self.pick_folder, "Add every document in a folder"),
+                               ("💬 WhatsApp ZIP…", self.open_whatsapp, "Take documents (and the name / phone) from a WhatsApp export")):
+            b = ttk.Button(bar, text=text, command=cmd)
+            b.pack(side="left", padx=(0, 4))
+            Tooltip(b, tip)
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8, pady=2)
+        for text, cmd, tip in (("✨ Fill from documents", self.autofill_cover, "Fill the empty boxes from the documents"),
+                               ("👤 Candidate info", self.show_candidate_info, "Show this candidate's row from your sheet"),
+                               ("Re-check", self.recheck, "Run all checks again")):
+            b = ttk.Button(bar, text=text, command=cmd)
+            b.pack(side="left", padx=(0, 4))
+            Tooltip(b, tip)
+        clr = ttk.Button(bar, text="🗑 Clear", style="Danger.TButton", command=self.clear)
+        clr.pack(side="right")
+        Tooltip(clr, "Empty the list and all boxes, and delete the files of the imported folder")
 
+        # -- the candidate's boxes (name, surname, joining date, phone + your custom fields) ---------
         self.custom_vars: dict[str, tk.StringVar] = {}
-        self.custom_host = ttk.Frame(parent)
-        self.custom_host.pack(fill="x", pady=(6, 0))
+        self.custom_host = ttk.LabelFrame(parent, text="Candidate", padding=(8, 4, 8, 6))
+        self.custom_host.pack(fill="x", pady=(8, 0))
         self._build_custom()
         self.settings.subscribe("docpacker.custom_fields", lambda k, v: self._build_custom())
+        for var in (self.name_var, self.surname_var, self.join_var):
+            var.trace_add("write", lambda *_: self._ctx_changed())
 
         bot = ttk.Frame(parent)
         bot.pack(side="bottom", fill="x", pady=(6, 0))
@@ -213,26 +229,37 @@ class DocPacker(Tool):
         paned.pack(fill="both", expand=True, pady=8)
         left = ttk.Frame(paned)
         paned.add(left, weight=3)
-        self.table = DataTable(left, [("file", "File", 220), ("type", "Document", 190), ("score", "Match", 55, "e"),
-                                      ("status", "Checks", 90), ("pages", "Pages", 50, "e")], height=8,
+        # checks panel (left, collapsible) | documents list (right)
+        hdr = ttk.Frame(left)
+        hdr.pack(fill="x")
+        self._checks_open = True
+        self._checks_btn = ttk.Button(hdr, text="◀ Hide checks", style="Tiny.TButton", command=self._toggle_checks_panel)
+        self._checks_btn.pack(side="left")
+        inner = ttk.Frame(left)
+        inner.pack(fill="both", expand=True, pady=(4, 0))
+        self._inner = inner
+        inner.rowconfigure(0, weight=1)
+        inner.columnconfigure(0, weight=0, minsize=330)
+        inner.columnconfigure(1, weight=1)
+        self._checks_frame = ttk.LabelFrame(inner, text="Checks of the selected file (double-click a ☐ to confirm)", padding=4)
+        self._checks_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        tbl_host = ttk.Frame(inner)
+        tbl_host.grid(row=0, column=1, sticky="nsew")
+        self.table = DataTable(tbl_host, [("file", "File", 220), ("type", "Document", 190), ("score", "Match", 55, "e"),
+                                          ("status", "Checks", 90), ("pages", "Pages", 50, "e")], height=8,
                                on_select=self._selected, on_double=lambda i: self.edit_pages(i))
         self.table.tag_colors(fail="err", warn="warn", ok="ok", manual="muted", busy="muted")
         self.table.pack(fill="both", expand=True)
         self.table.tree.bind("<Button-3>", self._menu, add="+")
         self.table.tree.bind("<Delete>", lambda e: self.remove_selected())
-        self.drop = DropZone(left, "Drop files or folders here", self.add_paths, theme=self.app.theme, height=54)
-        self.drop.pack(fill="x", pady=(6, 0))
-        chk = ttk.LabelFrame(left, text="Checks of the selected file (double-click a ☐ to confirm it yourself)", padding=4)
-        chk.pack(fill="both", expand=True, pady=(6, 0))
-        self.checks = ttk.Treeview(chk, columns=("s", "label", "detail"), show="headings", height=6)
-        for k, h, w in (("s", "", 30), ("label", "Check", 250), ("detail", "Details", 260)):
+        self.checks = ttk.Treeview(self._checks_frame, columns=("s", "label", "detail"), show="headings", height=10)
+        for k, h, w in (("s", "", 28), ("label", "Check", 130), ("detail", "Details", 150)):
             self.checks.heading(k, text=h)
             self.checks.column(k, width=w, stretch=(k == "detail"))
         self.checks.pack(fill="both", expand=True)
         self.checks.bind("<Double-1>", self._toggle_manual)
         for tag, col in (("fail", "err"), ("warn", "warn"), ("ok", "ok")):
             self.checks.tag_configure(tag, foreground=self.app.theme.p[col])
-
         right = ttk.Frame(paned)
         paned.add(right, weight=2)
         bar = ttk.Frame(right)
@@ -247,6 +274,15 @@ class DocPacker(Tool):
         self.viewer.on_rotate = self._rotated
         self.app.theme.on_change(self._repaint_checks)
 
+    def _toggle_checks_panel(self) -> None:
+        if self._checks_open:
+            self._checks_frame.grid_remove(); self._inner.columnconfigure(0, minsize=0)
+            self._checks_btn.configure(text="▶ Show checks")
+        else:
+            self._checks_frame.grid(); self._inner.columnconfigure(0, minsize=330)
+            self._checks_btn.configure(text="◀ Hide checks")
+        self._checks_open = not self._checks_open
+
     def _repaint_checks(self) -> None:
         if self.checks.winfo_exists():
             for tag, col in (("fail", "err"), ("warn", "warn"), ("ok", "ok")):
@@ -256,35 +292,48 @@ class DocPacker(Tool):
     def _custom_labels(self) -> list[str]:
         return [str(x).strip() for x in self.get("custom_fields") or [] if str(x).strip()]
 
+    FIELD_COLUMNS = 4
+
     def _build_custom(self) -> None:
-        """One entry per custom field from the settings; typed values survive a rebuild."""
+        """One tidy grid: name, surname, joining date, phone, then your custom fields (label above each box).
+        Typed values survive a rebuild."""
         if not hasattr(self, "custom_host") or not self.custom_host.winfo_exists():
             return
         old = {k: v.get() for k, v in self.custom_vars.items()}
         for w in self.custom_host.winfo_children():
             w.destroy()
         self.custom_vars = {}
-        ttk.Label(self.custom_host, text="Phone").pack(side="left", padx=(0, 4))
-        phone = ttk.Entry(self.custom_host, textvariable=self.phone_var, width=18)
-        phone.pack(side="left", padx=(0, 12))
-        autocomplete(phone, "docpacker.phone")
-        Tooltip(phone, "Placeholder: {phone}")
+        cols = self.FIELD_COLUMNS
+        for c in range(cols):
+            self.custom_host.columnconfigure(c, weight=1, uniform="fld")
+        cells: list[tuple[str, tk.StringVar, str, str]] = [        # label, variable, autocomplete id, tooltip
+            ("Full name", self.name_var, "docpacker.name", "Placeholder: {name}"),
+            ("Surname", self.surname_var, "docpacker.surname", "Placeholder: {surname}"),
+            ("Joining date (YYYY-MM-DD)", self.join_var, "", "Placeholder: {joining}"),
+            ("Phone", self.phone_var, "docpacker.phone", "Placeholder: {phone}")]
+        keys = custom_keys(self._custom_labels())
+        for label, key in keys.items():
+            var = tk.StringVar(value=old.get(label, ""))
+            self.custom_vars[label] = var
+            var.trace_add("write", lambda *_: self._ai_prune())
+            cells.append((label, var, f"docpacker.custom.{slugify(label)}", f"Placeholder: {{{key}}}"))
+        for n, (label, var, ac_id, tip) in enumerate(cells):
+            r, c = divmod(n, cols)
+            cell = ttk.Frame(self.custom_host)
+            cell.grid(row=r, column=c, sticky="ew", padx=(0, 10), pady=(0, 4))
+            ttk.Label(cell, text=label, style="Muted.TLabel").pack(anchor="w")
+            e = ttk.Entry(cell, textvariable=var)
+            e.pack(fill="x")
+            if ac_id:
+                autocomplete(e, ac_id)
+            Tooltip(e, tip)
         if not getattr(self, "_phone_traced", False):
             self._phone_traced = True
             self.phone_var.trace_add("write", lambda *_: self._wa_prune())
-        keys = custom_keys(self._custom_labels())
-        for label, key in keys.items():
-            ttk.Label(self.custom_host, text=label).pack(side="left", padx=(0, 4))
-            var = tk.StringVar(value=old.get(label, ""))
-            e = ttk.Entry(self.custom_host, textvariable=var, width=20)
-            e.pack(side="left", padx=(0, 12))
-            autocomplete(e, f"docpacker.custom.{slugify(label)}")
-            Tooltip(e, f"Placeholder: {{{key}}}")
-            self.custom_vars[label] = var
-            var.trace_add("write", lambda *_: self._ai_prune())
         if keys:
+            rows = (len(cells) + cols - 1) // cols
             ttk.Button(self.custom_host, text="Fields…", style="Tiny.TButton",
-                       command=lambda: self.app.open_settings(self.id)).pack(side="right")
+                       command=lambda: self.app.open_settings(self.id)).grid(row=rows, column=cols - 1, sticky="e")
 
     def values(self) -> dict[str, str]:
         """Placeholder values for the cover, the file name and the folders."""
@@ -461,7 +510,7 @@ class DocPacker(Tool):
 
     # ------------------------------------------------------------------ adding files
     def accept_files(self, paths: list[str]) -> None:
-        self.add_paths(paths)
+        return                      # drag & drop is disabled in DocPacker
 
     def pick_files(self) -> None:
         exts = " ".join(f"*{e}" for e in supported_extensions())
@@ -482,6 +531,7 @@ class DocPacker(Tool):
         supported = set(supported_extensions())
         files: list[str] = []
         for p in map(Path, paths):
+            self._remember_import_dir(p)
             if p.is_dir():
                 it = p.rglob("*") if self.get("recursive") else p.glob("*")
                 files.extend(str(f) for f in sorted(it) if f.is_file() and f.suffix.lower() in supported)
@@ -783,7 +833,7 @@ class DocPacker(Tool):
 
     def _refresh_summary(self) -> None:
         if not self.entries:
-            self.status_var.set("Add the person's files (drop them anywhere in the window).")
+            self.status_var.set("Add the person's files (use Add files / Add folder).")
             return
         miss = self._missing()
         warn = sum(1 for e in self.entries.values() if e.worst() in ("warn", "manual"))
@@ -896,22 +946,110 @@ class DocPacker(Tool):
         self.viewer.clear()
         self.recheck()
 
-    def clear(self) -> None:
-        if self.entries and not confirm(self.frame, "Remove all files from the list?"):
+    # -- Clear: empties the list and every box, and removes the files of the folder they were imported from
+    def _remember_import_dir(self, p: Path) -> None:
+        folder = p if p.is_dir() else p.parent
+        key = str(folder)
+        if key in self._wa_dirs:                                # unzipped WhatsApp folders are cleaned separately
             return
+        self._import_dirs[key] = self._import_dirs.get(key, False) or (p.is_dir() and bool(self.get("recursive")))
+
+    @staticmethod
+    def _unsafe_folder(folder: Path) -> bool:
+        """Never wipe a drive root, the home folder or its standard folders (Desktop, Documents, Downloads ...)."""
+        try:
+            f = folder.resolve()
+        except OSError:
+            return True
+        home = Path.home().resolve()
+        shared = {home, *(home / n for n in ("Desktop", "Documents", "Downloads", "Pictures", "Videos", "Music", "OneDrive"))}
+        return f == Path(f.anchor) or len(f.parts) <= 2 or f in shared or f in home.parents
+
+    def _files_to_delete(self) -> tuple[list[Path], list[str]]:
+        """(files, folders skipped for safety).  The package built in this session is kept."""
+        keep = {Path(self.last_output).resolve()} if self.last_output else set()
+        files: dict[Path, None] = {}
+        skipped: list[str] = []
+        for folder, deep in self._import_dirs.items():
+            fp = Path(folder)
+            if not fp.is_dir():
+                continue
+            if self._unsafe_folder(fp):
+                skipped.append(folder)
+                continue
+            for f in (fp.rglob("*") if deep else fp.glob("*")):
+                try:
+                    if f.is_file() and not f.is_symlink() and f.resolve() not in keep:
+                        files[f] = None
+                except OSError:
+                    continue
+        return list(files), skipped
+
+    @staticmethod
+    def _recycle(path: Path) -> bool:
+        """Move to the Recycle Bin when possible (True); otherwise delete for good (False)."""
+        try:
+            from send2trash import send2trash
+        except ImportError:
+            path.unlink()
+            return False
+        send2trash(str(path))
+        return True
+
+    def _reset_fields(self) -> None:
+        for var in (self.name_var, self.surname_var, self.join_var, self.phone_var, *self.custom_vars.values()):
+            var.set("")
+        self.ai_filled.clear()
+        self.wa_filled.clear()
+        self.ai_note_var.set("")
+        self.wa_note_var.set("")
+
+    def clear(self) -> None:
+        files, skipped = self._files_to_delete()
+        has_fields = any(v.get().strip() for v in (self.name_var, self.surname_var, self.join_var, self.phone_var,
+                                                   *self.custom_vars.values()))
+        if not (self.entries or files or has_fields):
+            return
+        msg = "Clear the list and all the boxes?"
+        if files:
+            try:
+                import send2trash  # noqa: F401
+                how = "moved to the Recycle Bin"
+            except ImportError:
+                how = "DELETED FOR GOOD (cannot be undone - install 'send2trash' to use the Recycle Bin instead)"
+            folders = "\n".join(f"   • {d}" for d, _ in self._import_dirs.items() if not self._unsafe_folder(Path(d)))
+            msg += (f"\n\n{len(files)} file(s) in the folder(s) the documents came from will be {how}:\n{folders}\n\n"
+                    "This includes files that were not added to the list.")
+        if skipped:
+            msg += "\n\nNot touched (too important to wipe): " + ", ".join(skipped)
+        if not confirm(self.frame, msg):
+            return
+        self.viewer.clear()                                     # let go of the files before deleting them
+        try:
+            self.app.renderer.clear()
+        except Exception:
+            _log.debug("ignored error", exc_info=True)
         self.entries.clear()
         self.table.clear()
-        self.viewer.clear()
         self.checks.delete(*self.checks.get_children())
-        self.name_var.set("")
-        self.surname_var.set("")
-        self.phone_var.set("")
-        self.wa_filled.clear()
+        self._reset_fields()
         self._wa_sources.clear()
         self._wa_split.clear()
-        self.wa_note_var.set("")
         self._wa_cleanup()
+        self._import_dirs.clear()
+        self.last_output = ""
         self._refresh_summary()
+        failed, trashed = [], 0
+        for f in files:
+            try:
+                trashed += self._recycle(f)
+            except Exception as exc:
+                failed.append(f"{f.name} ({exc})")
+        if files:
+            self.log(f"Cleared: {len(files) - len(failed)} file(s) removed from the imported folder(s)", "info")
+        if failed:
+            error(self.frame, f"{len(failed)} file(s) could not be deleted (open in another program?):\n"
+                  + "\n".join(failed[:8]) + (" …" if len(failed) > 8 else ""))
 
     def on_close(self) -> None:
         self._wa_cleanup()                                 # unzipped WhatsApp chats are private: never leave them behind
@@ -1101,6 +1239,69 @@ class DocPacker(Tool):
         ttk.Button(bar, text="Suggest from page contents", command=suggest).pack(side="left", padx=6)
         ttk.Button(bar, text="Apply", style="Accent.TButton", command=apply).pack(side="right")
         ttk.Button(bar, text="Cancel", command=top.destroy).pack(side="right", padx=6)
+
+    # ------------------------------------------------------------------ candidate info pop-up
+    def show_candidate_info(self) -> None:
+        """One click: a pop-up with the candidate's row from the sheet chosen in the settings."""
+        name = self.name_var.get().strip()
+        path = str(self.get("info_sheet") or "").strip()
+        if not path:
+            if confirm(self.frame, "No candidates sheet is chosen yet.\n\nOpen the settings to choose one?"):
+                self.app.open_settings(self.id)
+            return
+        if not name:
+            info_box(self.frame, "Type the candidate's name first.")
+            return
+        try:
+            hits = find_candidate(path, name, str(self.get("info_tab") or ""), str(self.get("info_name_column") or ""),
+                                  int(self.get("info_header_row") or 1))
+        except SheetError as exc:
+            error(self.frame, str(exc))
+            return
+        except Exception as exc:
+            error(self.frame, f"Could not read the sheet: {exc}")
+            return
+        if not hits:
+            info_box(self.frame, f"No row for “{name}” was found in {Path(path).name}.")
+            return
+        top, body = modal(self.frame, f"Candidate info - {name}", 460, 0)
+        top.transient(self.frame.winfo_toplevel())
+        top.bind("<Escape>", lambda e: top.destroy())
+        head = tk.StringVar()
+        ttk.Label(body, textvariable=head, style="Muted.TLabel", wraplength=420, justify="left").pack(anchor="w")
+        tree = ttk.Treeview(body, columns=("field", "value"), show="headings", height=min(14, max(len(h.fields) for h in hits)),
+                            selectmode="browse")
+        tree.heading("field", text="Field")
+        tree.heading("value", text="Value")
+        tree.column("field", width=150, stretch=False)
+        tree.column("value", width=280)
+
+        def show(i: int) -> None:
+            h = hits[i]
+            head.set(f"{Path(path).name} - row {h.row} - match {h.score:.0%}")
+            tree.delete(*tree.get_children())
+            for k, v in h.fields:
+                tree.insert("", "end", values=(k, v))
+
+        if len(hits) > 1:                                      # several similar names: let the user pick the right one
+            labels = [f"{h.fields[0][1] if h.fields else '?'}  ({h.score:.0%}, row {h.row})" for h in hits]
+            pick = tk.StringVar(value=labels[0])
+            cb = ttk.Combobox(body, textvariable=pick, values=labels, state="readonly")
+            cb.pack(fill="x", pady=(6, 0))
+            cb.bind("<<ComboboxSelected>>", lambda e: show(labels.index(pick.get())))
+        tree.pack(fill="both", expand=True, pady=6)
+
+        def copy_row() -> None:
+            sel = tree.selection()
+            rows = [tree.item(s, "values") for s in sel] or [tree.item(c, "values") for c in tree.get_children()]
+            top.clipboard_clear()
+            top.clipboard_append("\n".join(f"{k}: {v}" for k, v in rows))
+
+        bar = ttk.Frame(body)
+        bar.pack(fill="x")
+        ttk.Button(bar, text="Close", style="Accent.TButton", command=top.destroy).pack(side="right")
+        ttk.Button(bar, text="Copy", command=copy_row).pack(side="right", padx=6)
+        show(0)
 
     # ------------------------------------------------------------------ package
     def ordered_pieces(self) -> list[tuple[Entry, Piece]]:
