@@ -22,7 +22,6 @@ from ..core.schema import Opt
 from ..core.settings import data_dir
 from ..core.sheets import write_csv, write_xlsx
 from ..core.system import open_path, reveal
-from ..ui.dnd import DropZone
 from ..ui.viewer import PageViewer
 from ..ui.visa_dialogs import (FollowupDialog, ImportDialog, KindDialog, PagePicker, PersonDialog, PickResult,
                                TemplateDialog)
@@ -329,8 +328,6 @@ class VisaTracker(Tool):
         paned.add(right, weight=2)
         self.detail = ttk.Frame(right)
         self.detail.pack(fill="both", expand=True)
-        DropZone(parent, "Drop a visa / ticket file here (adds it to the selected person)", self.accept_files,
-                 theme=self.app.theme, height=44).pack(fill="x", pady=(6, 0))
         self.refresh()
 
     def _retry_store(self) -> None:
@@ -902,7 +899,7 @@ class VisaTracker(Tool):
             return
         p = (self._people() or [None])[0]
         if p is None:
-            info(self.frame, "Select a person first, then drop the file again.\n\n(Spreadsheets are imported as a list of people.)")
+            info(self.frame, "Select a person first, then add the file again.\n\n(Spreadsheets are imported as a list of people.)")
             return
         KindDialog(self, Path(path).name, lambda kind: self._attach_path(p, kind, path))
 

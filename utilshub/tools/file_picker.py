@@ -14,7 +14,6 @@ from ..core.schema import Opt
 from ..core.sheets import SheetError, cell_text, load_book, write_xlsx
 from ..core.system import open_path, reveal
 from ..core.textutil import human_size, normalise_name, parse_ext_list, split_list
-from ..ui.dnd import make_drop_target
 from ..ui.widgets import DataTable, FolderEntry, ask_text, confirm, error, info, style_text
 from .base import Command, Tool
 
@@ -233,7 +232,6 @@ class FilePicker(Tool):
         m.add_command(label="Toggle selected ✔", command=lambda: [self.toggle_row(i) for i in self.table.selection()])
         m.add_command(label="Open file", command=lambda: self._each_selected(lambda h: open_path(h.path)))
         m.add_command(label="Show in folder", command=lambda: self._each_selected(lambda h: reveal(h.path)))
-        make_drop_target(self.names_text, self._drop_names)
         self._names_modified()
 
     # ------------------------------------------------------------------ names

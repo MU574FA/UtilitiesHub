@@ -159,7 +159,7 @@ def hint(parent: tk.Misc, text: str, wrap: int = 520, **pack) -> ttk.Label:
 
 # --------------------------------------------------------------------------- folder / file entry
 class FolderEntry(ttk.Frame):
-    """Entry + Browse (+ Open) for a folder / file / save-path. Accepts dropped paths."""
+    """Entry + Browse (+ Open) for a folder / file / save-path."""
 
     def __init__(self, parent: tk.Misc, variable: tk.StringVar | None = None, kind: str = "dir",
                  filetypes: list | None = None, on_change: Callable[[str], None] | None = None,
@@ -175,8 +175,6 @@ class FolderEntry(ttk.Frame):
                        style="Tiny.TButton").pack(side="left", padx=(4, 0))
         if on_change:
             self.var.trace_add("write", lambda *_: on_change(self.var.get()))
-        from .dnd import make_drop_target
-        make_drop_target(self.entry, lambda paths: self.var.set(paths[0]) if paths else None)
 
     def browse(self) -> None:
         cur = self.var.get().strip()

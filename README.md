@@ -9,7 +9,7 @@ A modern, offline-first desktop productivity suite built with Python and Tkinter
 - **🛫 Visa Tracker**: Never miss a visa window again. Tracks every person's visa (default 90 days), shows days left with colour codes, tells you **who to contact today**, keeps a **proof log** of every follow-up, stores *just the visa page* cut out of a big file, tracks tickets and flights, and warns about problems (flight after the deadline, no ticket, passport too short). See [Visa Tracker](#-visa-tracker).
 - **📑 CV Sorter**: Automatically inspects, renames, and sorts incoming resumes (PDF, DOCX, PPTX, images) based on candidate names, contact details, and job titles with fuzzy matching.
 - **📦 DocPacker**: Assembles comprehensive document dossiers and visa/application packages with automatic cover pages, page rotation, deskewing, and validation.
-- **📄 PDF Desk (Multi-file Merger)**: Combine, split, reorder, rotate, and optimize documents with instantaneous thumbnail previews and drag-and-drop.
+- **📄 PDF Desk (Multi-file Merger)**: Combine, split, reorder, rotate, and optimize documents with instantaneous thumbnail previews.
 - **🔎 Extract** (tabs: *Screenshots · Find text · Passports*): Extract text, dates, phone numbers and Arabic text from screenshots, scans and photos into a table; search any file for words or patterns (regex or similarity); read passports (MRZ with check digits, expiry, validity).
 - **🔄 Match & Sync** (tabs: *Names · Sheet sync*): Compare two name lists or find typed names in a file (typos, word order, Arabic spelling), and update an old Excel sheet from a new one by key, reviewing every change before it is applied.
 - **🧼 Clean-up** (tabs: *Duplicates · Scans*): *Duplicates* finds identical files, documents with the same text and look-alike scans (even turned, re-sized or re-saved), each with a likelihood score; work in **Manual**, **Assisted** or **Auto** mode. Duplicates are *moved* to a review folder, never deleted. *Scans* detects turned, tilted, shadowed and blank pages and fixes them (turn upright, straighten, trim, even out lighting, black & white, drop blank pages), then lets you fine-tune any page by hand. Originals are never touched, and a whole batch is undone in one click.
@@ -114,7 +114,6 @@ For HR teams that recruit from abroad and pay for visas that must be used within
 | `Ctrl + ,` | Open Settings |
 | `Alt + 1` .. `Alt + 9` | Switch between tools |
 | `F11` | Toggle Full Screen |
-| `Drag & Drop` | Drop files directly onto the window or active tool |
 
 ---
 

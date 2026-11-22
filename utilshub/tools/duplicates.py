@@ -23,7 +23,6 @@ from ..core.settings import data_dir
 from ..core.sheets import write_xlsx
 from ..core.system import open_path, reveal
 from ..core.textutil import human_size, parse_ext_list
-from ..ui.dnd import make_drop_target
 from ..ui.viewer import PageViewer
 from ..ui.widgets import DataTable, FolderEntry, Tooltip, confirm, error, info, style_text
 from .base import Command, Tool
@@ -109,7 +108,6 @@ class DuplicateFinder(Tool):
         sb.pack(side="right", fill="y")
         self.src_list.pack(side="left", fill="both", expand=True)
         style_text(left, self.src_list)
-        make_drop_target(self.src_list, self.accept_files)
         bar = ttk.Frame(left)
         bar.pack(fill="x")
         ttk.Button(bar, text="Add folder…", style="Tiny.TButton", command=self.add_folder).pack(side="left")
@@ -117,9 +115,9 @@ class DuplicateFinder(Tool):
         ttk.Button(bar, text="Remove", style="Tiny.TButton", command=self.remove_sources).pack(side="left")
         ttk.Button(bar, text="Clear", style="Tiny.TButton", command=self.clear_sources).pack(side="left", padx=4)
         self.src_lbl = ttk.Label(left, style="Muted.TLabel", wraplength=230, justify="left",
-                                 text="Drop folders or files here.")
+                                 text="Add folders or files with the buttons above.")
         self.src_lbl.pack(anchor="w", pady=(4, 0))
-        for text, key in (("Sub-folders too", "recursive"), ("Scan as soon as I drop", "scan_on_drop")):
+        for text, key in (("Sub-folders too", "recursive"), ("Scan as soon as I add", "scan_on_drop")):
             ttk.Checkbutton(left, text=text, variable=var(key, tk.BooleanVar)).pack(anchor="w")
         row = ttk.Frame(left)
         row.pack(fill="x", pady=2)
@@ -235,7 +233,7 @@ class DuplicateFinder(Tool):
         for s in self.get("sources") or []:
             self.src_list.insert("end", s)
         n = len(self.get("sources") or [])
-        self.src_lbl.configure(text=f"{n} place(s) to search" if n else "Drop folders or files here.")
+        self.src_lbl.configure(text=f"{n} place(s) to search" if n else "Add folders or files with the buttons above.")
 
     def _add_sources(self, paths: list[str]) -> None:
         cur = list(self.get("sources") or [])

@@ -518,11 +518,11 @@ def _plural(n: int, word: str = "file") -> str:
 
 # ---------------------------------------------------------------- get files
 @brick("given", "Files I give it", "source", "📥",
-       "Starts with the files you drop on the Workflows screen (or choose with 'Choose files').", source=True)
+       "Starts with the files you choose on the Workflows screen (or choose with 'Choose files').", source=True)
 def b_given(flow: Flow, p: Params):
     files = _dedupe([f for f in flow.inputs if f.is_file()])
     if not files:
-        raise FlowStop("No files were given. Drop files on the Workflows screen or press 'Choose files…'.")
+        raise FlowStop("No files were given. Press 'Choose files…'.")
     flow.files = files
     return _plural(len(files)) + " given"
 
@@ -1170,7 +1170,7 @@ def _t(name: str, description: str, *steps: tuple) -> Workflow:
 
 
 TEMPLATES: list[Workflow] = [
-    _t("Photos → one PDF", "Drop photos or scans; get a single PDF in the right order.",
+    _t("Photos → one PDF", "Choose photos or scans; get a single PDF in the right order.",
        ("given", {}), ("keep_types", {"types": "jpg, jpeg, png, tif, tiff, pdf"}), ("sort", {"by": "name"}),
        ("merge_pdf", {"name": "Combined", "numbers": "Page {n} of {total}"}), ("open_result", {})),
     _t("Tidy a messy folder", "Pick a folder; remove exact duplicates and sort what is left into folders by type.",

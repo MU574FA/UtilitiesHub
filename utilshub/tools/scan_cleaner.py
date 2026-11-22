@@ -19,7 +19,6 @@ from ..core.ocr import OcrConfig, find_tesseract
 from ..core.schema import Opt
 from ..core.system import open_path, reveal
 from ..core.textutil import human_size
-from ..ui.dnd import DropZone
 from ..ui.widgets import DataTable, FolderEntry, confirm, error, info
 from .base import Command, Tool
 
@@ -178,8 +177,6 @@ class ScanCleaner(Tool):
         m.add_command(label="Open original", command=lambda: self._each(lambda e: open_path(e.path)))
         m.add_command(label="Open clean copy", command=lambda: self._each(lambda e: e.out and open_path(e.out)))
         m.add_command(label="Show in folder", command=lambda: self._each(lambda e: reveal(e.out or e.path)))
-        DropZone(parent, "Drop scans or folders here", self.accept_files,
-                 filetypes=[("Scans", " ".join("*" + e for e in FILE_EXTS))], theme=self.app.theme, height=56).pack(fill="x")
 
     def _store(self, key: str, v: tk.Variable) -> None:
         try:

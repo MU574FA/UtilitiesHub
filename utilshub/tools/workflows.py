@@ -161,7 +161,7 @@ class WorkflowsTool(Tool):
         if n:
             text = f"{n} file(s) ready" + ("" if uses else "  (this workflow does not use them)")
         else:
-            text = "Drop files on this window to give them to the workflow" if uses else ""
+            text = "Choose files to give them to the workflow" if uses else ""
         self.inputs_lbl.configure(text=text)
 
     def touch(self, results_stale: bool = True, rebuild_side: bool = True) -> None:

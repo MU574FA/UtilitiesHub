@@ -21,7 +21,6 @@ from .core.settings import Settings, data_dir
 from .core.system import open_path
 from .options import all_shared_opts, shared_pages
 from .tools.base import Command, Tool
-from .ui import dnd
 from .ui.palette import CommandPalette
 from .ui.settings_ui import SettingsWindow
 from .ui.theme import ThemeManager
@@ -69,7 +68,7 @@ class App:
             self.settings.register(cls.options())
         self.autocomplete = autocomplete_core.create(self.settings, data_dir() / "autocomplete_learned.json")
         self._setup_logging()
-        self.root = root or dnd.create_root()
+        self.root = root or tk.Tk()
         self.root.app = self
         self.root.title(APP_NAME)
         self.root.minsize(900, 600)
@@ -103,7 +102,6 @@ class App:
         self.settings.subscribe("ocr.libreoffice_cmd", lambda k, v: setattr(self.renderer, "cmd", v))
         self.jobs.on_change(self._job_changed)
         self.settings.subscribe("auto.max_parallel", lambda k, v: self.jobs.resize(max(2, int(v or 1) + 1)))
-        dnd.make_drop_target(self.root, self.on_drop)
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
         start = self.settings.get("window.last_tool") if self.settings.get("window.startup_tool") == "last" else "home"
         self.show_tool(start if start in self.tools else next(iter(self.tools), ""))
@@ -553,10 +551,6 @@ class App:
         self.job_lbl.configure(text=f"{j.title}{more}")
 
     # ------------------------------------------------------------------ files & automation
-    def on_drop(self, paths: list[str]) -> None:
-        if self.current and paths:
-            self.current.accept_files(paths)
-
     def start_all_auto(self) -> None:
         for t in self.iter_tools():
             if t.can_automate() and (not t.auto_running() or t.auto_incomplete()):

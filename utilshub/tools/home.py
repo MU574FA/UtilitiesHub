@@ -9,7 +9,6 @@ import tkinter as tk
 from tkinter import ttk
 
 from ..core.schema import Opt, Page
-from ..ui.dnd import DropZone
 from ..ui.widgets import LogView
 from .base import Tool
 
@@ -25,7 +24,7 @@ class HomeTool(Tool):
     id = "home"
     title = "Home"
     icon = "🏠"
-    description = "Overview, quick drop and recent activity."
+    description = "Overview and recent activity."
     order = 0
 
     @classmethod
@@ -36,7 +35,6 @@ class HomeTool(Tool):
             Opt("home.show_stats", True, "Show small statistics on the cards", "bool", section="Home screen"),
             Opt("home.show_hidden_strip", True, "Show a row with the hidden tools (one click to bring one back)", "bool",
                 section="Home screen"),
-            Opt("home.show_dropzone", True, "Show the drop zone", "bool", section="Home screen"),
             Opt("home.show_activity", True, "Show recent activity", "bool", section="Home screen"),
         ]
 
@@ -74,7 +72,7 @@ class HomeTool(Tool):
         left = ttk.Frame(head)
         left.pack(side="left", fill="x", expand=True)
         ttk.Label(left, text="Utils Hub", style="H2.TLabel").pack(anchor="w")
-        ttk.Label(left, text="Everything in one place. Pick a tool, or drop files below.", style="Muted.TLabel").pack(anchor="w")
+        ttk.Label(left, text="Everything in one place. Pick a tool.", style="Muted.TLabel").pack(anchor="w")
         ttk.Button(head, text="⚙  Customize tools", command=lambda: self.app.open_settings("home")).pack(side="right")
 
         self.cards = ttk.Frame(p)
@@ -84,13 +82,6 @@ class HomeTool(Tool):
 
         self.target = tk.StringVar()
         self.combo = None
-        if self.settings.get_bool("home.show_dropzone", True):
-            row = ttk.Frame(p)
-            row.pack(fill="x", pady=(8, 4))
-            ttk.Label(row, text="Send dropped files to:").pack(side="left")
-            self.combo = ttk.Combobox(row, textvariable=self.target, state="readonly", width=28)
-            self.combo.pack(side="left", padx=6)
-            DropZone(p, "Drop files here", self._dropped, theme=self.app.theme).pack(fill="x", pady=4)
 
         self.logview = None
         if self.settings.get_bool("home.show_activity", True):
@@ -192,7 +183,7 @@ class HomeTool(Tool):
         self._choose_target(paths)
 
     def _choose_target(self, paths: list[str]) -> None:
-        """No target picked (drop zone hidden, or nothing selected): ask where the files should go."""
+        """No target picked (nothing selected): ask where the files should go."""
         m = tk.Menu(self.app.root, tearoff=False)
         m.add_command(label=f"Send {len(paths)} file(s) to…", state="disabled")
         m.add_separator()

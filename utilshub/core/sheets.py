@@ -135,7 +135,10 @@ def write_xlsx(path: str | Path, sheets: dict[str, list[list[Any]]], header: boo
     for name, rows in sheets.items():
         ws = wb.create_sheet(title=(name or "Sheet")[:31])
         for row in rows:
-            ws.append([_excel_safe(c) for c in row])
+            ws.append([_excel_clean(c) for c in row])
+            for cell in ws[ws.max_row]:                   # real text cells: no visible apostrophe needed
+                if isinstance(cell.value, str) and cell.data_type != "s":
+                    cell.data_type = "s"
         if header and rows:
             for cell in ws[1]:
                 cell.font = Font(bold=True)
@@ -152,6 +155,7 @@ def write_xlsx(path: str | Path, sheets: dict[str, list[list[Any]]], header: boo
     return str(path)
 
 
+_DATEISH = re.compile(r"^\d{1,4}[/.\-]\d{1,2}[/.\-]\d{1,4}(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?$")
 _NUMBERISH = re.compile(r"^(?=.*\d)[\d\s().,+\-/;]+$")
 
 
@@ -161,9 +165,18 @@ def formula_safe(text: str) -> str:
     `=...`, `@...`, `+/-...` and number-like strings (phone numbers such as +964 770 123 4567,
     leading-zero numbers, long digit sequences, negative numbers) get a leading apostrophe so
     Excel treats them as plain text instead of calculating or reformatting them."""
+    if text and _DATEISH.match(text):
+        return text                                          # dates stay clean (no apostrophe)
     if text and (text[0] in "=+-@\t\r" or _NUMBERISH.match(text)):
         return "'" + text
     return text
+
+
+def _excel_clean(value: Any) -> Any:
+    """Strip control characters only; text cells are marked as text in write_xlsx (no apostrophe)."""
+    if isinstance(value, str):
+        return "".join(ch for ch in value if ch == "\t" or ch == "\n" or ord(ch) >= 32)
+    return value
 
 
 def _excel_safe(value: Any) -> Any:

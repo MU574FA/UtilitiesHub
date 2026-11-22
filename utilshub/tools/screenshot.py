@@ -1,4 +1,4 @@
-"""Screenshot extractor: copy a screenshot (or drop an image) -> OCR -> pop-up with the fields -> session table.
+"""Screenshot extractor: copy a screenshot  -> OCR -> pop-up with the fields -> session table.
 
 Uses the same FieldSpecs / rule engine as CV Sorter (shared `FieldForm`, fields editor, clipboard formats).
 """
@@ -16,7 +16,6 @@ from ..core.fields import ExtractContext, FieldEngine, FieldSpec, default_screen
 from ..core.schema import Opt
 from ..core.sheets import formula_safe, write_csv, write_xlsx
 from ..core.templates import render_clipboard
-from ..ui.dnd import DropZone
 from ..ui.widgets import DataTable, Tooltip, confirm, copy_to_clipboard, error, modal, style_text
 from .base import Command, Tool
 from .cv_sorter import FieldForm, assign_menu
@@ -139,7 +138,7 @@ class Screenshot(Tool):
     title = "Screenshot Extractor"
     icon = "📸"
     order = 40
-    description = "Copy a screenshot (or drop an image): the text is read and the fields are collected into a table."
+    description = "Copy a screenshot : the text is read and the fields are collected into a table."
 
     @classmethod
     def options(cls) -> list[Opt]:
@@ -441,8 +440,6 @@ class Screenshot(Tool):
         ttk.Button(bar, text="⚙ Settings", command=lambda: self.app.open_settings(self.id)).pack(side="right")
         self.count_lbl = ttk.Label(bar, style="Muted.TLabel")
         self.count_lbl.pack(side="right", padx=10)
-        DropZone(parent, "Drop screenshots here (or copy one with Win+Shift+S)", self.accept_files,
-                 theme=self.app.theme, height=58).pack(fill="x", pady=8)
         self.holder = ttk.Frame(parent)
         self.holder.pack(fill="both", expand=True)
         self._rebuild_table()

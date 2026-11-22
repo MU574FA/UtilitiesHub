@@ -28,7 +28,6 @@ from ..core.templates import base_values, render_clipboard, render_filename, ren
 from ..core.textutil import parse_ext_list
 from ..core.watcher import FolderWatcher
 from ..ui.autocomplete import attach as autocomplete
-from ..ui.dnd import DropZone
 from ..ui.viewer import PageViewer
 from ..ui.widgets import DataTable, FolderEntry, Tooltip, confirm, copy_to_clipboard, error, info, style_text
 from .base import Command, Tool
@@ -870,7 +869,6 @@ class CvSorter(Tool):
         Tooltip(b_csv, "Open the configured output CSV file in Excel / default app")
         self.summary = ttk.Label(bar, style="Muted.TLabel")
         self.summary.pack(side="right", padx=10)
-        DropZone(parent, "Drop CVs or folders here", self.accept_files, theme=self.app.theme, height=58).pack(fill="x")
         self.table = DataTable(parent, [("file", "File", 260, "w"), ("name", "Name", 180, "w"), ("status", "Status", 90, "w"),
                                         ("notes", "Notes", 360, "w")], height=12, searchable=True,
                                on_double=lambda iid: self.open_review(self.items[iid]), stretch="notes")

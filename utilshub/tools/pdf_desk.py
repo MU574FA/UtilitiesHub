@@ -13,7 +13,6 @@ from ..core.schema import Opt
 from ..core.settings import temp_dir
 from ..core.system import open_path, reveal
 from ..core.textutil import parse_page_ranges, sanitize_filename
-from ..ui.dnd import DropZone
 from ..ui.thumbs import ThumbGrid, ThumbItem
 from ..ui.viewer import PageViewer
 from ..ui.widgets import confirm, error, info as info_box
@@ -73,8 +72,6 @@ class PdfDesk(Tool):
         self.grid.on_change = self._changed
         self.grid.on_select = self._selected
         self.grid.on_open = self._open_item
-        self.drop = DropZone(left, "Drop PDFs, images or Word files here", self.add_paths, theme=self.app.theme, height=50)
-        self.drop.pack(fill="x", pady=(6, 0))
 
         right = ttk.Frame(paned)
         paned.add(right, weight=2)

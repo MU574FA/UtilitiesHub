@@ -59,7 +59,7 @@ class HubTool(Tool):
         opts: list[Opt] = [
             Opt(f"{cls.id}.last_tab", "", "Last open tab", "str"),
             Opt(f"{cls.id}.show_filebar", True, "Show the shared files bar above the tabs", "bool", section="Tabs",
-                help="Drop files once, then send them to any tab of this tool with one click.", page=first),
+                help="Add files once, then send them to any tab of this tool with one click.", page=first),
         ]
         for member, _ in cls.member_classes():
             opts += member.options()
@@ -143,7 +143,7 @@ class HubTool(Tool):
             first = self.shared[0].replace("\\", "/").rsplit("/", 1)[-1]
             text = f"{n} file(s) ready: {first}" + (f" and {n - 1} more" if n > 1 else "")
         else:
-            text = "Drop files here - they stay available for every tab."
+            text = "Add files in a tab - they stay available for every tab."
         self._files_lbl.configure(text=text)
         for b in self._send_buttons:
             b.configure(state="normal" if n else "disabled")

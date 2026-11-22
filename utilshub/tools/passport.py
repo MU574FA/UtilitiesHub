@@ -9,7 +9,6 @@ from ..core import ocr
 from ..core.mrz import parse_mrz, passport_summary
 from ..core.readers import ReadOptions, read_document, supported_extensions
 from ..core.schema import Opt
-from ..ui.dnd import DropZone
 from ..ui.widgets import DataTable, error, info, style_text
 from .base import Command, Tool
 
@@ -46,7 +45,7 @@ class PassportTool(Tool):
         ttk.Button(bar, text="Clear", command=self.clear).pack(side="left", padx=6)
         ttk.Button(bar, text="Add to file…", command=self.add_to_file).pack(side="right")
         ttk.Button(bar, text="Copy table", command=lambda: self.table.copy_selected(all_rows=True)).pack(side="right", padx=6)
-        self.summary = ttk.Label(parent, style="Muted.TLabel", text="Add passport scans or photos (or drop them anywhere).")
+        self.summary = ttk.Label(parent, style="Muted.TLabel", text="Add passport scans or photos .")
         self.summary.pack(anchor="w", pady=(4, 0))
         self.table = DataTable(parent, [("file", "File", 200), ("surname", "Surname", 120), ("given", "Given names", 140),
                                         ("number", "Passport no", 90), ("country", "Nat.", 45), ("dob", "Born", 85),
@@ -55,7 +54,6 @@ class PassportTool(Tool):
                                height=9, stretch="issues", searchable=True, on_select=lambda ids: self._show_text())
         self.table.pack(fill="both", expand=True, pady=6)
         self.table.tag_colors(valid="ok", expired="err", soon="warn", bad="err")
-        DropZone(parent, "Drop passport scans here", self.accept_files, theme=self.app.theme, height=44).pack(fill="x")
 
         lower = ttk.PanedWindow(parent, orient="horizontal")
         lower.pack(fill="both", expand=True, pady=(8, 0))

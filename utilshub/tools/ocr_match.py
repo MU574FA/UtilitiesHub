@@ -9,7 +9,6 @@ from ..core import ocr
 from ..core.readers import DocInfo, ReadOptions, read_document, supported_extensions
 from ..core.schema import Opt
 from ..core.textmatch import TextHit, find_text, split_patterns
-from ..ui.dnd import DropZone
 from ..ui.widgets import DataTable, copy_to_clipboard, error, info, style_text
 from .base import Command, Tool
 
@@ -45,7 +44,7 @@ class OcrMatch(Tool):
         ttk.Button(bar, text="Clear", command=self.clear).pack(side="left", padx=6)
         ttk.Button(bar, text="Copy text", command=self.copy_text).pack(side="right")
         ttk.Button(bar, text="Save text…", command=self.save_text).pack(side="right", padx=6)
-        self.status = ttk.Label(parent, style="Muted.TLabel", text="Add scans, PDFs or photos (or drop them anywhere).")
+        self.status = ttk.Label(parent, style="Muted.TLabel", text="Add scans, PDFs or photos .")
         self.status.pack(anchor="w", pady=(4, 0))
 
         paned = ttk.PanedWindow(parent, orient="vertical")
@@ -102,7 +101,6 @@ class OcrMatch(Tool):
                                        ("score", "Score", 60, "e"), ("page", "Page", 50, "e"), ("line", "Line", 50, "e"),
                                        ("context", "Line text", 340)], height=8, stretch="context", searchable=True)
         self.results.pack(fill="both", expand=True)
-        DropZone(parent, "Drop scans, PDFs or photos here", self.accept_files, theme=self.app.theme, height=44).pack(fill="x")
         for iid in self.docs:
             self._add_row(iid)
 
