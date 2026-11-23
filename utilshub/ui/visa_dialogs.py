@@ -398,8 +398,8 @@ class PersonDialog:
         from ..core.mrz import passport_summary
         from ..core.readers import ReadOptions, read_document, supported_extensions
         exts = " ".join(f"*{e}" for e in supported_extensions())
-        path = filedialog.askopenfilename(title="Passport scan or photo", filetypes=[("Images & PDFs", exts), ("All", "*.*")],
-                                          parent=self.win)
+        path = filedialog.askopenfilename(title="Passport scan or photo", initialdir=self.tool.input_dir(),
+                                          filetypes=[("Images & PDFs", exts), ("All", "*.*")], parent=self.win)
         if not path:
             return
         cfg = ocr.OcrConfig.from_settings(self.app.settings)

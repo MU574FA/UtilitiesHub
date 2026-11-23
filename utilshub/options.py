@@ -197,6 +197,11 @@ AI = [
 ]
 
 
+def _folders_builder(parent, app) -> None:
+    from .ui.folders_panel import build_folders_panel
+    build_folders_panel(parent, app)
+
+
 def _ai_builder(parent, app) -> None:
     from .ui.ai_panel import build_ai_panel
     build_ai_panel(parent, app)
@@ -209,18 +214,21 @@ def _autocomplete_builder(parent, app) -> None:
 
 def shared_pages() -> list[Page]:
     return [
-        Page("general", "General & window", "⚙", 1, "Window behaviour, startup and notifications.", opts=GENERAL),
-        Page("ui", "Appearance", "🎨", 2, "Theme, colours, fonts and density.", opts=APPEARANCE),
-        Page("preview", "Previews", "🖼", 3, "How the original file is shown next to extracted data.", opts=PREVIEW),
-        Page("ocr", "OCR & converters", "🔎", 4, "Tesseract and LibreOffice - used by every tool.", opts=OCR),
-        Page("match", "Matching & word lists", "🎯", 5, "Fuzzy matching, known names and the word lists the extractors use.",
-             opts=MATCH),
-        Page("auto", "Automation", "🤖", 6, "Autopilot: watch folders and process files without you.", opts=AUTOMATION),
-        Page("ai", "AI", "✨", 7, "Optional AI (Ollama, OpenAI-compatible APIs, Anthropic): read scans, fill fields, recognise documents. "
-             "Choose per feature: Rules only, AI only, or one then the other.", opts=AI, builder=_ai_builder),
-        Page("autocomplete", "Autocomplete", "⌨", 8, "Suggestions and shortcuts while you type. Every text box has its own "
+        Page("general", "General & window", "⚙", 10, "Window behaviour, startup and notifications.", opts=GENERAL, group="App"),
+        Page("ui", "Appearance", "🎨", 11, "Theme, colours, fonts and density.", opts=APPEARANCE, group="App"),
+        Page("folders", "Folders & paths", "📁", 13,
+             "Select and set the input and output folder for every feature in one place.",
+             builder=_folders_builder, group="App"),
+        Page("ai", "AI", "✨", 20, "Optional AI (Ollama, OpenAI-compatible APIs, Anthropic): read scans, fill fields, recognise documents. "
+             "Choose per feature: Rules only, AI only, or one then the other.", opts=AI, builder=_ai_builder, group="Engines & AI"),
+        Page("ocr", "OCR & converters", "🔎", 21, "Tesseract and LibreOffice - used by every tool.", opts=OCR, group="Engines & AI"),
+        Page("match", "Matching & word lists", "🎯", 22, "Fuzzy matching, known names and the word lists the extractors use.",
+             opts=MATCH, group="Engines & AI"),
+        Page("preview", "Previews", "🖼", 23, "How the original file is shown next to extracted data.", opts=PREVIEW, group="Engines & AI"),
+        Page("autocomplete", "Autocomplete", "⌨", 24, "Suggestions and shortcuts while you type. Every text box has its own "
              "keywords and shortcuts, and you decide where it is on or off.", opts=AUTOCOMPLETE_OPTS,
-             builder=_autocomplete_builder),
+             builder=_autocomplete_builder, group="Engines & AI"),
+        Page("auto", "Automation", "🤖", 799, "Autopilot: watch folders and process files without you.", opts=AUTOMATION, group="Automation"),
     ]
 
 

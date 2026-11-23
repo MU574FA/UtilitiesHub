@@ -24,6 +24,8 @@ class OptionPage(ttk.Frame):
         self._vars: dict[str, tk.Variable] = {}
         self.show_advanced = show_advanced
         self._guard = False
+        self._unsub = self.s.subscribe("", self._external_change)
+        self.bind("<Destroy>", lambda e: e.widget is self and self._unsub())
         self.build()
 
     def build(self) -> None:
@@ -40,7 +42,6 @@ class OptionPage(ttk.Frame):
             row.pack(fill="x", pady=3)
             self.widgets[opt.key] = row
             self._row(row, opt)
-        self.s.subscribe("", self._external_change)
 
     # ------------------------------------------------------------------ one option
     def _row(self, row: ttk.Frame, opt: Opt) -> None:
@@ -163,8 +164,28 @@ class OptionPage(ttk.Frame):
         self.rebuild()
 
     def _external_change(self, key: str, value: Any) -> None:
-        if key in self._reset_btns and self.winfo_exists():
-            self._paint_reset(next(o for o in self.opts if o.key == key))
+        if self._guard or not self.winfo_exists():
+            return
+        if key in self._reset_btns:
+            opt = next(o for o in self.opts if o.key == key)
+            self._paint_reset(opt)
+            if key in self._vars:
+                var = self._vars[key]
+                if opt.kind in ("folder", "file", "append", "str", "secret", "color", "font"):
+                    val = str(value or "")
+                    if str(var.get()).strip() != val.strip():
+                        self._guard = True
+                        try:
+                            var.set(val)
+                        finally:
+                            self._guard = False
+                elif opt.kind == "bool":
+                    if bool(var.get()) != bool(value):
+                        self._guard = True
+                        try:
+                            var.set(bool(value))
+                        finally:
+                            self._guard = False
 
     def rebuild(self) -> None:
         for w in self.winfo_children():
@@ -178,6 +199,14 @@ class OptionPage(ttk.Frame):
         for o in self.opts:
             self.s.reset(o.key)
         self.rebuild()
+
+
+def group_pages(pages: list[Page]) -> list[tuple[str, list[Page]]]:
+    """Group settings pages by `page.group` while preserving page order."""
+    grouped: dict[str, list[Page]] = {}
+    for p in pages:
+        grouped.setdefault(p.group or "Other", []).append(p)
+    return list(grouped.items())
 
 
 # --------------------------------------------------------------------------- window
@@ -199,10 +228,16 @@ class SettingsWindow(tk.Toplevel):
         self.app = app
         self.title("Settings")
         self.configure(background=app.theme.p["bg"])
+        app.theme.on_change(lambda: self.winfo_exists() and self.configure(background=app.theme.p["bg"]))
         w, h = 980, 700
         self.geometry(f"{w}x{h}+{app.root.winfo_rootx() + 40}+{app.root.winfo_rooty() + 30}")
         self.minsize(760, 480)
         self.pages: list[Page] = app.settings_pages()
+        self._nav_pages: list[Page] = []
+        self._nav_buttons: dict[str, ttk.Button] = {}
+        self._group_buttons: dict[str, ttk.Button] = {}
+        self._collapsed: set[str] = set()
+        self._last_query: str = ""
         self.current: str = ""
         self.show_advanced = tk.BooleanVar(value=False)
 
@@ -219,16 +254,16 @@ class SettingsWindow(tk.Toplevel):
         paned = ttk.PanedWindow(self, orient="horizontal")
         paned.pack(fill="both", expand=True)
         left = ttk.Frame(paned, style="Side.TFrame")
-        self.nav = tk.Listbox(left, activestyle="none", exportselection=False, width=24, borderwidth=0, highlightthickness=0)
-        app.theme.style_listbox(self.nav)
-        self.nav.configure(background=app.theme.p["surface"], font=(None, 11))
-        self.nav.pack(fill="both", expand=True, padx=4, pady=4)
-        self.nav.bind("<<ListboxSelect>>", self._pick)
+        self.nav_scroll = ScrollFrame(left, bg_key="surface")
+        self.nav_scroll.canvas.configure(width=245)
+        self.nav_scroll.pack(fill="both", expand=True, padx=2, pady=4)
         paned.add(left, weight=0)
         right = ttk.Frame(paned)
         paned.add(right, weight=1)
+        self.group_lbl = ttk.Label(right, style="Muted.TLabel")
+        self.group_lbl.pack(anchor="w", padx=14, pady=(8, 0))
         self.title_lbl = ttk.Label(right, style="H2.TLabel")
-        self.title_lbl.pack(anchor="w", padx=14, pady=(8, 0))
+        self.title_lbl.pack(anchor="w", padx=14, pady=(0, 0))
         self.desc_lbl = ttk.Label(right, style="Muted.TLabel", wraplength=640, justify="left")
         self.desc_lbl.pack(anchor="w", padx=14)
         self.scroll = ScrollFrame(right)
@@ -251,25 +286,58 @@ class SettingsWindow(tk.Toplevel):
         self.show(page or self.pages[0].id)
 
     def _fill_nav(self, pages: list[Page]) -> None:
-        self.nav.delete(0, "end")
-        self._nav_pages = pages
-        for p in pages:
-            self.nav.insert("end", f"  {p.icon}  {p.title}")
+        self._nav_pages = list(pages)
+        self._nav_buttons.clear()
+        self._group_buttons.clear()
+        body = self.nav_scroll.body
+        for w in body.winfo_children():
+            w.destroy()
+        if not pages:
+            ttk.Label(body, text="No matching settings", style="SideTitle.TLabel").pack(anchor="w", padx=12, pady=12)
+            return
+        searching = bool(self.search.get().strip())
+        for gi, (group_name, group_items) in enumerate(group_pages(pages)):
+            if gi > 0:
+                ttk.Separator(body).pack(fill="x", padx=10, pady=(6, 2))
+            collapsed = (group_name in self._collapsed) and not searching
+            label = f"▸  {group_name.upper()} ({len(group_items)})" if collapsed else f"▾  {group_name.upper()}"
+            hdr = ttk.Button(body, text=label, style="SideGroup.TButton", cursor="hand2",
+                             command=lambda g=group_name: self._toggle_group(g))
+            hdr.pack(fill="x", padx=4, pady=(4 if gi == 0 else 2, 1))
+            self._group_buttons[group_name] = hdr
+            if not collapsed:
+                for p in group_items:
+                    st = "SideItemSel.TButton" if p.id == self.current else "SideItem.TButton"
+                    btn = ttk.Button(body, text=f"{p.icon}  {p.title}", style=st, cursor="hand2",
+                                     command=lambda pid=p.id: self.show(pid))
+                    btn.pack(fill="x", padx=4, pady=1)
+                    self._nav_buttons[p.id] = btn
+        self.nav_scroll.bind_children()
 
-    def _pick(self, _e=None) -> None:
-        sel = self.nav.curselection()
-        if sel:
-            self.show(self._nav_pages[sel[0]].id)
+    def _toggle_group(self, group_name: str) -> None:
+        if self.search.get().strip():
+            return
+        if group_name in self._collapsed:
+            self._collapsed.remove(group_name)
+        else:
+            self._collapsed.add(group_name)
+        self._fill_nav(self._nav_pages)
 
     def _page_opts(self, page: Page) -> list[Opt]:
         return page.opts or self.app.settings.opts(f"{page.id}.")
 
     def _search(self) -> None:
         q = self.search.get().strip().lower()
+        had_query = bool(self._last_query)
+        self._last_query = q
         if not q:
             self._fill_nav(self.pages)
+            if had_query and self.current:
+                self.show(self.current, force=True)
             return
-        hits = [p for p in self.pages if q in p.title.lower() or any(q in (o.label + o.help + o.section).lower() for o in self._page_opts(p))]
+        hits = [p for p in self.pages
+                if q in (p.title + " " + p.description + " " + p.group).lower()
+                or any(q in (o.label + o.help + o.section).lower() for o in self._page_opts(p))]
         self._fill_nav(hits)
         if hits:
             self.show(hits[0].id, query=q)
@@ -279,10 +347,15 @@ class SettingsWindow(tk.Toplevel):
         if not page or (page_id == self.current and not force and not query):
             return
         self.current = page_id
-        for i, p in enumerate(self._nav_pages):
-            if p.id == page_id:
-                self.nav.selection_clear(0, "end")
-                self.nav.selection_set(i)
+        grp = page.group or "Other"
+        if grp in self._collapsed:
+            self._collapsed.remove(grp)
+            self._fill_nav(self._nav_pages)
+        else:
+            for pid, btn in self._nav_buttons.items():
+                if btn.winfo_exists():
+                    btn.configure(style="SideItemSel.TButton" if pid == page_id else "SideItem.TButton")
+        self.group_lbl.configure(text=grp.upper() if page.group else "")
         self.title_lbl.configure(text=f"{page.icon}  {page.title}")
         self.desc_lbl.configure(text=page.description)
         for w in self.scroll.body.winfo_children():
@@ -290,7 +363,8 @@ class SettingsWindow(tk.Toplevel):
         opts = self._page_opts(page)
         if query:
             opts = [o for o in opts if query in (o.label + o.help + o.section).lower()] or opts
-        OptionPage(self.scroll.body, self.app, opts, self.show_advanced.get()).pack(fill="x")
+        if opts:
+            OptionPage(self.scroll.body, self.app, opts, self.show_advanced.get()).pack(fill="x")
         if page.builder:
             page.builder(self.scroll.body, self.app)
         self.scroll.bind_children()
@@ -299,8 +373,12 @@ class SettingsWindow(tk.Toplevel):
     def reset_page(self) -> None:
         page = next((p for p in self.pages if p.id == self.current), None)
         if page and confirm(self, f"Reset all '{page.title}' settings to their defaults?"):
-            for o in self._page_opts(page):
-                self.app.settings.reset(o.key)
+            keys = [o.key for o in self._page_opts(page)]
+            if page.id == "folders":
+                from .folders_panel import feature_path_keys
+                keys = feature_path_keys(self.app)
+            for key in keys:
+                self.app.settings.reset(key)
             self.show(self.current, force=True)
 
     def export_all(self) -> None:

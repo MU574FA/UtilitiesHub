@@ -51,6 +51,8 @@ class VisaTracker(Tool):
     icon = "🛫"
     order = 5
     stats_when_closed = True
+    input_path_key = "input_folder"
+    output_path_key = "output_folder"
     description = ("Track every candidate's visa window (e.g. 90 days), who to contact today, tickets, the stored visa "
                    "page and a proof log of every follow-up.")
 
@@ -58,6 +60,10 @@ class VisaTracker(Tool):
     @classmethod
     def options(cls) -> list[Opt]:
         return [
+            Opt("visa.input_folder", "", "Input folder", "folder", section="Folders",
+                help="Default folder when importing spreadsheets / visa PDFs or attaching passport, visa and ticket files."),
+            Opt("visa.output_folder", "", "Output folder", "folder", section="Folders",
+                help="Default folder when exporting the people list, follow-up log or calendar (.ics) file."),
             Opt("visa.default_days", 90, "Visa entry window (days)", "int", min=1, max=720, section="Visa rules",
                 help="How long after the issue date the person can still enter. A single visa can override it."),
             Opt("visa.inclusive", False, "The issue date counts as day 1", "bool", section="Visa rules",
@@ -194,6 +200,8 @@ class VisaTracker(Tool):
         return self.store
 
     def _setting_changed(self, key: str, _value) -> None:
+        if key in ("visa.input_folder", "visa.output_folder"):
+            return
         if key == "visa.data_folder":
             self.store, self.store_error = None, ""
         if self.built and self.frame is not None and self.frame.winfo_exists():
@@ -898,6 +906,7 @@ class VisaTracker(Tool):
             return
         label = dict(V.DOC_KINDS)[kind].lower()
         path = filedialog.askopenfilename(title=f"Choose the file that contains the {label}",
+                                          initialdir=self.input_dir(),
                                           filetypes=[("PDF, images, Word", "*.pdf *.png *.jpg *.jpeg *.tif *.tiff *.bmp *.webp *.docx"),
                                                      ("All files", "*.*")])
         if path:
@@ -989,6 +998,7 @@ class VisaTracker(Tool):
             return
         path = filedialog.askopenfilename(
             title="Choose a Visa PDF (single or multiple visas)",
+            initialdir=self.input_dir(),
             filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
         )
         if path:
@@ -1094,6 +1104,7 @@ class VisaTracker(Tool):
     # ------------------------------------------------------------------ import / export
     def import_file(self) -> None:
         path = filedialog.askopenfilename(title="Your list of people (Excel or CSV)",
+                                          initialdir=self.input_dir(),
                                           filetypes=[("Excel / CSV", "*.xlsx *.xlsm *.csv *.tsv"), ("All files", "*.*")])
         if path:
             self._import_path(path)
@@ -1112,8 +1123,8 @@ class VisaTracker(Tool):
         info(self.frame, msg + ("\n\nCtrl+Z undoes the whole import." if added or updated else ""))
 
     def _save_as(self, title: str, name: str, types: list) -> str:
-        return filedialog.asksaveasfilename(title=title, initialfile=name, defaultextension=types[0][1].lstrip("*"),
-                                            filetypes=types)
+        return filedialog.asksaveasfilename(title=title, initialdir=self.output_dir(), initialfile=name,
+                                            defaultextension=types[0][1].lstrip("*"), filetypes=types)
 
     def export_people(self) -> None:
         today = self.today()

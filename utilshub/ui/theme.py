@@ -176,6 +176,15 @@ class ThemeManager:
         st.configure("SideSel.TButton", background=p["accent_soft"], foreground=acc, bordercolor=p["accent_soft"],
                      anchor="w", padding=(12, pad + 3), font=bold)
         st.map("SideSel.TButton", background=[("active", p["accent_soft"])])
+        st.configure("SideGroup.TButton", background=p["surface"], foreground=p["muted"], bordercolor=p["surface"],
+                     anchor="w", padding=(10, pad), font=(family, max(8, size - 1), "bold"), relief="flat")
+        st.map("SideGroup.TButton", background=[("active", p["hover"])], foreground=[("active", p["fg"])])
+        st.configure("SideItem.TButton", background=p["surface"], foreground=p["fg"], bordercolor=p["surface"],
+                     anchor="w", padding=(22, pad + 1), font=base, relief="flat")
+        st.map("SideItem.TButton", background=[("active", p["hover"])])
+        st.configure("SideItemSel.TButton", background=p["accent_soft"], foreground=acc, bordercolor=p["accent_soft"],
+                     anchor="w", padding=(22, pad + 1), font=bold, relief="flat")
+        st.map("SideItemSel.TButton", background=[("active", p["accent_soft"])])
         st.configure("TEntry", fieldbackground=p["input"], padding=(6, pad), bordercolor=p["line"])
         st.map("TEntry", bordercolor=[("focus", acc)], fieldbackground=[("readonly", p["surface2"]), ("disabled", p["surface2"])])
         st.configure("TCombobox", fieldbackground=p["input"], padding=(6, pad), arrowcolor=p["fg"], background=p["surface2"])

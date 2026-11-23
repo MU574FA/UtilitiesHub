@@ -27,12 +27,17 @@ class PdfDesk(Tool):
     title = "PDF Desk"
     icon = "📄"
     order = 40
+    input_path_key = "input_folder"
+    output_path_key = "output_folder"
     description = "Merge PDFs, images and Word files; rotate, reorder and delete pages; split, compress, number, watermark, OCR."
 
     @classmethod
     def options(cls) -> list[Opt]:
         return [
-            Opt("pdf_desk.output_folder", "", "Save results to (empty = ask each time)", "folder", section="Output"),
+            Opt("pdf_desk.input_folder", "", "Input folder", "folder", section="Folders",
+                help="Default folder when clicking Add files or Add folder."),
+            Opt("pdf_desk.output_folder", "", "Output folder (save results to)", "folder", section="Folders",
+                help="Where merged, extracted and split PDFs are saved (empty = ask each time)."),
             Opt("pdf_desk.open_after", True, "Open the result when finished", "bool", section="Output"),
             Opt("pdf_desk.page_size", "a4", "Page size for images", "choice", section="Merging",
                 choices=[("a4", "A4"), ("letter", "Letter"), ("fit", "Same as the image")]),
@@ -153,12 +158,13 @@ class PdfDesk(Tool):
 
     def pick_files(self) -> None:
         exts = " ".join(f"*{e}" for e in PICK_EXTS)
-        paths = filedialog.askopenfilenames(title="Add files", filetypes=[("PDF, images, Word", exts), ("All", "*.*")])
+        paths = filedialog.askopenfilenames(title="Add files", initialdir=self.input_dir(),
+                                            filetypes=[("PDF, images, Word", exts), ("All", "*.*")])
         if paths:
             self.add_paths(list(paths))
 
     def pick_folder(self) -> None:
-        folder = filedialog.askdirectory(title="Add all files of a folder")
+        folder = filedialog.askdirectory(title="Add all files of a folder", initialdir=self.input_dir())
         if folder:
             self.add_paths([folder])
 
@@ -292,6 +298,7 @@ class PdfDesk(Tool):
     def _ask_save(self, initial: str) -> str:
         folder = self.get("output_folder")
         if folder:
+            Path(folder).mkdir(parents=True, exist_ok=True)
             base = Path(folder) / initial
             n = 2
             while base.exists():
@@ -379,6 +386,7 @@ class PdfDesk(Tool):
         folder = self.get("output_folder") or filedialog.askdirectory(title="Save the parts to", parent=self.frame)
         if not folder:
             return
+        Path(folder).mkdir(parents=True, exist_ok=True)
         stem = sanitize_filename(Path(self.grid.items[0].path).stem)
 
         def work(job):

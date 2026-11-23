@@ -6,6 +6,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, ttk
 
+from ..core.schema import Opt
 from ..core.sheets import formula_safe
 from ..core.system import open_path
 from ..ui.widgets import LogView, confirm, error, info
@@ -18,7 +19,13 @@ class HistoryTool(Tool):
     icon = "↶"
     description = "Every file move/copy/rename, with undo, and the activity log."
     order = 95
+    output_path_key = "output_folder"
     stats_when_closed = True          # the journal is loaded by the app, so the count is always known
+
+    @classmethod
+    def options(cls) -> list[Opt]:
+        return [Opt("history.output_folder", "", "Output folder (export list)", "folder", section="Folders",
+                    help="Default folder when exporting the file operations list.")]
 
     @classmethod
     def pages(cls):
@@ -141,6 +148,7 @@ class HistoryTool(Tool):
 
     def export(self) -> None:
         path = filedialog.asksaveasfilename(title="Export the list", defaultextension=".csv",
+                                            initialdir=self.output_dir(),
                                             filetypes=[("CSV (opens in Excel)", "*.csv")], parent=self.frame.winfo_toplevel())
         if not path:
             return

@@ -26,7 +26,8 @@ class SheetPicker(ttk.LabelFrame):
     """
 
     def __init__(self, parent, title: str, on_load: Callable[[Table], None] | None = None,
-                 column_label: str = "Column", pick_column: bool = True, path: str = "") -> None:
+                 column_label: str = "Column", pick_column: bool = True, path: str = "",
+                 initialdir: str | Callable[[], str | None] | None = None) -> None:
         super().__init__(parent, text=title, padding=8)
         self.on_load = on_load
         self.book: Book | None = None
@@ -38,7 +39,7 @@ class SheetPicker(ttk.LabelFrame):
         self.columnconfigure(1, weight=1)
         ttk.Label(self, text="File").grid(row=0, column=0, sticky="w")
         FolderEntry(self, self.path, "file", [("Spreadsheets", "*.xlsx *.xlsm *.csv *.tsv *.txt"), ("All", "*.*")],
-                    width=30).grid(row=0, column=1, sticky="ew", pady=2)
+                    width=30, initialdir=initialdir).grid(row=0, column=1, sticky="ew", pady=2)
         row2 = ttk.Frame(self)
         row2.grid(row=1, column=0, columnspan=2, sticky="ew", pady=2)
         ttk.Label(row2, text="Sheet").pack(side="left")
@@ -151,12 +152,18 @@ class NameMatcher(Tool):
     title = "Name Matcher"
     icon = "🧑‍🤝‍🧑"
     order = 40
+    input_path_key = "input_folder"
+    output_path_key = "output_folder"
     description = "Compare two name lists, or type a few names and find them in one file. Typos, word order, Arabic spelling."
 
     @classmethod
     def options(cls) -> list[Opt]:
         p = "name_matcher."
         return [
+            Opt(p + "input_folder", "", "Input folder", "folder", section="Folders",
+                help="Default folder when browsing for List A or List B spreadsheets."),
+            Opt(p + "output_folder", "", "Output folder", "folder", section="Folders",
+                help="Default folder when exporting match results."),
             Opt(p + "threshold", 80, "A match counts from (%)", "percent", min=40, max=100),
             Opt(p + "strong", 92, "'Strong' match from (%)", "percent", min=50, max=100),
             Opt(p + "one_to_one", True, "Each name in list B can be used only once", "bool"),
@@ -191,14 +198,16 @@ class NameMatcher(Tool):
         modes.pack(fill="x")
         for text, v in (("Names from a file", "file"), ("Type / paste names (no file needed)", "text")):
             ttk.Radiobutton(modes, text=text, value=v, variable=self.a_mode, command=self._a_mode_changed).pack(side="left", padx=(0, 10))
-        self.pa = SheetPicker(a_box, "List A (the names to check)", column_label="Name column", path=self.get("a_path"))
+        self.pa = SheetPicker(a_box, "List A (the names to check)", column_label="Name column", path=self.get("a_path"),
+                                initialdir=self.input_dir)
         self.a_text_box = ttk.LabelFrame(a_box, text="Names to check - one per line (or separated by ;)", padding=8)
         self.a_text = tk.Text(self.a_text_box, height=6, width=40, wrap="word", undo=True)
         style_text(self.frame, self.a_text)
         self.a_text.pack(fill="both", expand=True)
         self.a_text.insert("1.0", self.get("a_text"))
         self.a_text.bind("<<Modified>>", self._a_text_modified)
-        self.pb = SheetPicker(top, "List B (the reference list / the file to search in)", column_label="Name column", path=self.get("b_path"))
+        self.pb = SheetPicker(top, "List B (the reference list / the file to search in)", column_label="Name column",
+                              path=self.get("b_path"), initialdir=self.input_dir)
         self.pb.grid(row=0, column=1, sticky="new")
         self._a_mode_changed()
         self.pa.path.trace_add("write", lambda *_: self.put("a_path", self.pa.path.get()))
@@ -418,7 +427,8 @@ class NameMatcher(Tool):
         if not self.rows:
             info(self.frame, "Compare the lists first.")
             return
-        path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="name-matches.xlsx",
+        path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialdir=self.output_dir(),
+                                            initialfile="name-matches.xlsx",
                                             filetypes=[("Excel", "*.xlsx"), ("CSV", "*.csv")])
         if not path:
             return

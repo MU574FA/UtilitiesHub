@@ -38,12 +38,18 @@ class DuplicateFinder(Tool):
     title = "Duplicate Finder"
     icon = "🧬"
     order = 35
+    input_path_key = "input_folder"
+    output_path_key = "dest"
     description = "Find identical files and look-alike scans. Review them yourself, or let it clean up."
 
     @classmethod
     def options(cls) -> list[Opt]:
         p = "duplicates."
         return [
+            Opt(p + "input_folder", "", "Input folder", "folder", section="Folders",
+                help="Default folder for Add folder / Add files; also scanned if the 'Search in' list is empty."),
+            Opt(p + "dest", "", "Output folder (move duplicates to)", "folder", section="Folders",
+                help="Where moved duplicates go (empty = a '_duplicates' folder next to the first source)."),
             Opt(p + "sources", [], "Folders and files to search", "list", section="Search", advanced=True),
             Opt(p + "recursive", True, "Search sub-folders too", "bool", section="Search"),
             Opt(p + "extensions", "", "Only these extensions (e.g. pdf, jpg; empty = all)", "str", section="Search"),
@@ -69,8 +75,6 @@ class DuplicateFinder(Tool):
             Opt(p + "ocr", False, "Also read the text of scans with OCR (slow)", "bool", section="What to compare", advanced=True),
             Opt(p + "use_cache", True, "Remember fingerprints between runs (faster next time)", "bool", section="What to compare",
                 advanced=True),
-            Opt(p + "dest", "", "Move duplicates to (empty = a '_duplicates' folder next to the first source)", "folder",
-                section="Result"),
             Opt(p + "preview", True, "Show the two files side by side", "bool", section="Result"),
             *cls.append_opts(),
         ]
@@ -154,8 +158,10 @@ class DuplicateFinder(Tool):
         for i, (label, key, tipx) in enumerate((("Protect folder", "protect", "Files here are always kept, never removed."),
                                                 ("Move duplicates to", "dest", "Empty = '_duplicates' next to the first source."))):
             ttk.Label(form, text=label).grid(row=2 + i, column=0, sticky="w", pady=2, padx=(0, 8))
-            fe = FolderEntry(form, var(key), "dir", open_button=True)
+            v = var(key)
+            fe = FolderEntry(form, v, "dir", open_button=True)
             fe.grid(row=2 + i, column=1, sticky="ew", pady=2)
+            self.sync_var(key, v)
             Tooltip(fe, tipx)
 
         # --- actions
@@ -226,7 +232,12 @@ class DuplicateFinder(Tool):
 
     # ------------------------------------------------------------------ sources
     def sources(self) -> list[str]:
-        return [s for s in (self.get("sources") or []) if Path(s).exists()]
+        items = [s for s in (self.get("sources") or []) if Path(s).exists()]
+        if not items:
+            inp = self.input_dir()
+            if inp:
+                return [inp]
+        return items
 
     def _show_sources(self) -> None:
         self.src_list.delete(0, "end")
@@ -244,12 +255,12 @@ class DuplicateFinder(Tool):
         self._show_sources()
 
     def add_folder(self) -> None:
-        path = filedialog.askdirectory(title="Folder to search")
+        path = filedialog.askdirectory(title="Folder to search", initialdir=self.input_dir())
         if path:
             self._add_sources([path])
 
     def add_files(self) -> None:
-        paths = filedialog.askopenfilenames(title="Files to compare")
+        paths = filedialog.askopenfilenames(title="Files to compare", initialdir=self.input_dir())
         if paths:
             self._add_sources(list(paths))
 
@@ -513,8 +524,8 @@ class DuplicateFinder(Tool):
         if not self.result or not self.result.groups:
             info(self.frame, "Scan first.")
             return
-        path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="duplicates-report.xlsx",
-                                            filetypes=[("Excel", "*.xlsx")])
+        path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialdir=self.output_dir(),
+                                            initialfile="duplicates-report.xlsx", filetypes=[("Excel", "*.xlsx")])
         if not path:
             return
         recs = self._records()

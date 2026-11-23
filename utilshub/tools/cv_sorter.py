@@ -374,14 +374,17 @@ class CvSorter(Tool):
     title = "CV Sorter"
     icon = "📄"
     order = 10
+    input_path_key = "watch_folder"
+    output_path_key = "dest_folder"
     description = "Watch a folder of CVs, extract name / contact / job fields, review and file them automatically."
 
     @classmethod
     def options(cls) -> list[Opt]:
         p = cls.id + "."
         return [
-            Opt(p + "watch_folder", "", "Folder to watch / process", "folder", section="Folders"),
-            Opt(p + "dest_folder", "", "Save sorted CVs to", "str", section="Folders",
+            Opt(p + "watch_folder", "", "Input / watch folder", "folder", section="Folders",
+                help="Folder watched or processed by 'Process folder now', and default folder for 'Add files…'."),
+            Opt(p + "dest_folder", "", "Output folder (save sorted CVs to)", "folder", section="Folders",
                 help="Base path, optionally with {placeholders}: e.g. C:/Archive/{interviewer}/{name}  "
                      "— empty = a 'Sorted' folder inside the watched folder"),
             Opt(p + "extensions", DEFAULT_EXTS, "File types", "str", section="Folders", help="e.g. pdf, docx, jpg"),
@@ -813,6 +816,7 @@ class CvSorter(Tool):
         watch_var.trace_add("write", lambda *_: self.put("watch_folder", watch_var.get().strip()))
         FolderEntry(top, watch_var, "dir", width=60, open_button=True).grid(row=0, column=1, sticky="ew", pady=2)
         self.vars["watch_folder"] = watch_var
+        self.sync_var("watch_folder", watch_var)
 
         # Row 1 — destination folder with optional {placeholder} template support
         ttk.Label(top, text="Save sorted CVs to").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=2)
@@ -850,6 +854,7 @@ class CvSorter(Tool):
                             "Filters: {name|upper}  {name|slug}  {name|first}  etc.\n"
                             "Empty = a 'Sorted' folder inside the watched folder")
         self.vars["dest_folder"] = dest_var
+        self.sync_var("dest_folder", dest_var)
         bar = ttk.Frame(parent)
         bar.pack(fill="x", pady=8)
         self.watch_var = tk.BooleanVar(value=self.auto_running())
@@ -939,7 +944,8 @@ class CvSorter(Tool):
 
     def add_files(self) -> None:
         exts = " ".join("*" + e for e in self.extensions())
-        files = filedialog.askopenfilenames(title="Choose CVs", filetypes=[("CVs", exts), ("All files", "*.*")])
+        files = filedialog.askopenfilenames(title="Choose CVs", initialdir=self.input_dir(),
+                                           filetypes=[("CVs", exts), ("All files", "*.*")])
         if files:
             self.accept_files(list(files))
 

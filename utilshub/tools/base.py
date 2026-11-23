@@ -7,6 +7,7 @@ another tool.  See tools/file_picker.py for a compact example.
 from __future__ import annotations
 
 import logging
+import re
 import tkinter as tk
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +15,24 @@ from tkinter import ttk
 from typing import Callable
 
 from ..core.schema import Opt, Page
+
+
+def _existing_dir(raw: str | None) -> str | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    if "{" in text:
+        text = re.sub(r"[\\/]\{[^}]*\}.*$", "", text).strip()
+        if "{" in text:
+            text = re.sub(r"\{[^}]*\}.*$", "", text).strip()
+    if not text:
+        return None
+    p = Path(text)
+    if p.is_dir():
+        return str(p)
+    if p.is_file() and p.parent.is_dir():
+        return str(p.parent)
+    return None
 
 
 @dataclass
@@ -33,6 +52,9 @@ class Tool:
     description = ""
     order = 50
     stats_when_closed = False     # True: Home shows stats() even before the tool was opened (tool must load by itself)
+    input_path_key: str = ""
+    output_path_key: str = ""
+    settings_group: str = "Documents & files"
 
     def __init__(self, app) -> None:
         self.app = app
@@ -50,7 +72,8 @@ class Tool:
     @classmethod
     def pages(cls) -> list[Page]:
         """Settings pages of this tool (default: one page built from options())."""
-        return [Page(cls.id, cls.title, cls.icon, order=cls.order + 100, description=cls.description)]
+        return [Page(cls.id, cls.title, cls.icon, order=cls.order + 100, description=cls.description,
+                     group=cls.settings_group)]
 
     # ------------------------------------------------------------------ lifecycle
     def ensure_built(self, parent: tk.Misc) -> ttk.Frame:
@@ -99,6 +122,7 @@ class Tool:
             if not ask:
                 return False
             path = filedialog.asksaveasfilename(title="Add to CSV file (new or existing)", defaultextension=".csv",
+                                                initialdir=self.output_dir(),
                                                 filetypes=[("CSV (opens in Excel)", "*.csv")], confirmoverwrite=False)
             if not path:
                 return False
@@ -186,6 +210,38 @@ class Tool:
 
     def put(self, key: str, value) -> None:
         self.settings.set(f"{self.id}.{key}", value)
+
+    def input_dir(self) -> str | None:
+        return _existing_dir(self.get(self.input_path_key)) if self.input_path_key else None
+
+    def output_dir(self) -> str | None:
+        return _existing_dir(self.get(self.output_path_key)) if self.output_path_key else None
+
+    def sync_var(self, key: str, var: tk.Variable) -> None:
+        """Keep a tool widget variable in sync when `<id>.<key>` changes in Settings."""
+        if not hasattr(self, "_synced_vars"):
+            self._synced_vars: dict[str, tk.Variable] = {}
+            self.settings.subscribe(f"{self.id}.", self._on_synced_setting)
+        self._synced_vars[key] = var
+
+    def _on_synced_setting(self, full_key: str, value) -> None:
+        if not self.built or self.frame is None or not self.frame.winfo_exists():
+            return
+        prefix = f"{self.id}."
+        if not full_key.startswith(prefix):
+            return
+        var = self._synced_vars.get(full_key[len(prefix):])
+        if var is None:
+            return
+        val = "" if value is None else value
+        try:
+            cur = var.get()
+            if isinstance(val, str) and str(cur).strip() == val.strip():
+                return
+            if cur != val:
+                var.set(val)
+        except tk.TclError:
+            pass
 
     def stats(self) -> dict[str, int | str]:
         """Shown on the Home dashboard."""

@@ -60,12 +60,18 @@ class ScanCleaner(Tool):
     title = "Scan Cleaner"
     icon = "🧼"
     order = 41
+    input_path_key = "input_folder"
+    output_path_key = "folder"
     description = "Straighten, turn upright, trim and clean scans. Automatic first, then fix any page by hand."
 
     @classmethod
     def options(cls) -> list[Opt]:
         p = "scan_cleaner."
         return [
+            Opt(p + "input_folder", "", "Input folder", "folder", section="Folders",
+                help="Default folder when clicking Add files or Add folder."),
+            Opt(p + "folder", "", "Output folder (clean copies)", "folder", section="Folders",
+                help="Where clean copies are saved when saving to a folder (setting a folder enables saving there)."),
             Opt(p + "preset", "document", "Preset", "choice", choices=PRESET_CHOICES, section="Quick start",
                 help="Fills in the options below. Changing any of them switches this to 'Custom'."),
             Opt(p + "on_add", "analyse", "When I add files", "choice", choices=ON_ADD, section="Quick start"),
@@ -93,7 +99,6 @@ class ScanCleaner(Tool):
             Opt(p + "jpeg_quality", 90, "JPEG quality", "int", min=40, max=100, section="PDF and quality"),
             Opt(p + "output", "beside", "Save the clean copies", "choice", section="Output",
                 choices=[("beside", "Next to the original"), ("folder", "In this folder")]),
-            Opt(p + "folder", "", "Folder for the clean copies", "folder", section="Output"),
             Opt(p + "suffix", "_clean", "Added to the file name", "str", section="Output",
                 help="The original is never replaced; an empty suffix is changed to _clean when needed."),
             Opt(p + "policy", "number", "If a file with that name exists", "choice", section="Output",
@@ -108,6 +113,14 @@ class ScanCleaner(Tool):
         self._applying = False
         self._warned_tesseract = False
         self.editor = None
+        app.settings.subscribe(self.id + ".folder", self._folder_setting_changed)
+        app.settings.subscribe(self.id + ".output", lambda _k, _v: self.built and "output" in self.combos and self._sync_combo("output"))
+
+    def _folder_setting_changed(self, _key: str, value) -> None:
+        if str(value or "").strip() and self.get("output") != "folder":
+            self.put("output", "folder")
+            if self.built and "output" in self.combos:
+                self._sync_combo("output")
 
     # ------------------------------------------------------------------ UI
     def build(self, parent: ttk.Frame) -> None:
@@ -147,7 +160,9 @@ class ScanCleaner(Tool):
         r.columnconfigure(3, weight=1)
         ttk.Label(r, text="Save").pack(side="left")
         self._combo(r, "output", [("beside", "Next to the original"), ("folder", "In this folder")], 20).pack(side="left", padx=4)
-        FolderEntry(r, var("folder"), "dir", open_button=True).pack(side="left", fill="x", expand=True, padx=4)
+        folder_var = var("folder")
+        FolderEntry(r, folder_var, "dir", open_button=True).pack(side="left", fill="x", expand=True, padx=4)
+        self.sync_var("folder", folder_var)
         ttk.Label(r, text="name +").pack(side="left")
         ttk.Entry(r, width=9, textvariable=var("suffix")).pack(side="left", padx=4)
 
@@ -285,13 +300,14 @@ class ScanCleaner(Tool):
 
     # ------------------------------------------------------------------ adding files
     def add_files(self) -> None:
-        paths = filedialog.askopenfilenames(title="Scans to clean", filetypes=[("Scans", " ".join("*" + e for e in FILE_EXTS)),
-                                                                            ("All files", "*.*")])
+        paths = filedialog.askopenfilenames(title="Scans to clean", initialdir=self.input_dir(),
+                                            filetypes=[("Scans", " ".join("*" + e for e in FILE_EXTS)),
+                                                       ("All files", "*.*")])
         if paths:
             self.accept_files(list(paths))
 
     def add_folder(self) -> None:
-        path = filedialog.askdirectory(title="Folder with scans")
+        path = filedialog.askdirectory(title="Folder with scans", initialdir=self.input_dir())
         if path:
             self.accept_files([path])
 

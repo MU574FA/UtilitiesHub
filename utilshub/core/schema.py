@@ -54,3 +54,4 @@ class Page:
     description: str = ""
     builder: Any = None              # optional callable(parent, app) -> widget for hand-made pages
     opts: list[Opt] = field(default_factory=list)
+    group: str = ""

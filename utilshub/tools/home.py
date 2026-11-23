@@ -40,8 +40,8 @@ class HomeTool(Tool):
 
     @classmethod
     def pages(cls) -> list[Page]:
-        return [Page("home", "Home & tools", "🏠", 7, "Rearrange, hide and show tools; choose what Home displays.",
-                     builder=_tool_manager_page)]
+        return [Page("home", "Home & tools", "🏠", 12, "Rearrange, hide and show tools; choose what Home displays.",
+                     builder=_tool_manager_page, group="App")]
 
     def __init__(self, app) -> None:
         super().__init__(app)

@@ -138,12 +138,18 @@ class Screenshot(Tool):
     title = "Screenshot Extractor"
     icon = "📸"
     order = 40
+    input_path_key = "input_folder"
+    output_path_key = "output_folder"
     description = "Copy a screenshot : the text is read and the fields are collected into a table."
 
     @classmethod
     def options(cls) -> list[Opt]:
         p = cls.id + "."
         return [
+            Opt(p + "input_folder", "", "Input folder", "folder", section="Folders",
+                help="Default folder when clicking Open image…."),
+            Opt(p + "output_folder", "", "Output folder", "folder", section="Folders",
+                help="Default folder when exporting the session table."),
             Opt(p + "watch_clipboard", False, "Watch the clipboard for screenshots", "bool", section="Capture",
                 help="Copy any screenshot (Win+Shift+S, PrtScn...) and it is read automatically"),
             Opt(p + "poll_ms", 700, "Clipboard check interval (ms)", "int", min=200, max=5000, section="Capture", advanced=True),
@@ -293,7 +299,8 @@ class Screenshot(Tool):
         if not self.rows:
             self.app.notify("The table is empty", "warn")
             return
-        path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile=f"screenshots-{datetime.now():%Y%m%d-%H%M}.xlsx",
+        path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialdir=self.output_dir(),
+                                            initialfile=f"screenshots-{datetime.now():%Y%m%d-%H%M}.xlsx",
                                             filetypes=[("Excel", "*.xlsx"), ("CSV", "*.csv")])
         if not path:
             return
@@ -333,7 +340,8 @@ class Screenshot(Tool):
         self.ingest(img)
 
     def choose_files(self) -> None:
-        files = filedialog.askopenfilenames(filetypes=[("Images", " ".join("*" + e for e in IMAGE_EXTS))])
+        files = filedialog.askopenfilenames(initialdir=self.input_dir(),
+                                            filetypes=[("Images", " ".join("*" + e for e in IMAGE_EXTS))])
         if files:
             self.accept_files(list(files))
 

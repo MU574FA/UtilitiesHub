@@ -22,11 +22,17 @@ class PassportTool(Tool):
     title = "Passport & MRZ"
     icon = "🛂"
     order = 46
+    input_path_key = "input_folder"
+    output_path_key = "output_folder"
     description = "Read passport scans: MRZ parsing and check digits, surname, expiry and validity, export."
 
     @classmethod
     def options(cls) -> list[Opt]:
         return [
+            Opt("passport.input_folder", "", "Input folder", "folder", section="Folders",
+                help="Default folder when clicking Add passports…."),
+            Opt("passport.output_folder", "", "Output folder", "folder", section="Folders",
+                help="Default folder when exporting or adding results to a CSV file."),
             Opt("passport.min_months", 6, "Warn when the passport is valid for less than (months)", "int", min=0, max=60,
                 section="Checks"),
             *cls.append_opts(),
@@ -80,7 +86,8 @@ class PassportTool(Tool):
 
     def pick_files(self) -> None:
         exts = " ".join(f"*{e}" for e in supported_extensions())
-        paths = filedialog.askopenfilenames(title="Add passport scans", filetypes=[("Images & PDFs", exts), ("All", "*.*")])
+        paths = filedialog.askopenfilenames(title="Add passport scans", initialdir=self.input_dir(),
+                                            filetypes=[("Images & PDFs", exts), ("All", "*.*")])
         if paths:
             self.add_paths(list(paths))
 

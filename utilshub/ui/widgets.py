@@ -2,11 +2,21 @@
 from __future__ import annotations
 
 import csv
+import re
 import tkinter as tk
+from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Callable, Iterable
 
 from ..core.system import open_path
+
+
+def _dir_base(raw: str) -> str:
+    """Concrete folder prefix before any `{placeholder}` template segments."""
+    base = re.sub(r"[\\/]\{[^}]*\}.*$", "", raw.strip()).strip()
+    if "{" in base:
+        base = re.sub(r"\{[^}]*\}.*$", "", base).strip()
+    return base
 
 
 def app_of(widget: tk.Misc):
@@ -94,14 +104,15 @@ def tip(widget: tk.Misc, text) -> tk.Misc:
 class ScrollFrame(ttk.Frame):
     """A frame whose `.body` scrolls vertically (and follows the window width)."""
 
-    def __init__(self, parent: tk.Misc, **kw) -> None:
+    def __init__(self, parent: tk.Misc, bg_key: str = "bg", **kw) -> None:
         super().__init__(parent, **kw)
+        self._bg_key = bg_key
         self.canvas = tk.Canvas(self, highlightthickness=0, borderwidth=0)
         self.vbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=self.vbar.set)
         self.vbar.pack(side="right", fill="y")
         self.canvas.pack(side="left", fill="both", expand=True)
-        self.body = ttk.Frame(self.canvas)
+        self.body = ttk.Frame(self.canvas, style="Side.TFrame" if bg_key == "surface" else "TFrame")
         self._win = self.canvas.create_window((0, 0), window=self.body, anchor="nw")
         self.body.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
         self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self._win, width=e.width))
@@ -112,8 +123,8 @@ class ScrollFrame(ttk.Frame):
     def _paint(self) -> None:
         app = app_of(self)
         if app:
-            self.canvas.configure(background=app.theme.p["bg"])
-            app.theme.on_change(lambda: self.canvas.winfo_exists() and self.canvas.configure(background=app.theme.p["bg"]))
+            self.canvas.configure(background=app.theme.p[self._bg_key])
+            app.theme.on_change(lambda: self.canvas.winfo_exists() and self.canvas.configure(background=app.theme.p[self._bg_key]))
 
     def bind_wheel_to(self, w: tk.Misc) -> None:
         def wheel(e):
@@ -163,32 +174,69 @@ class FolderEntry(ttk.Frame):
 
     def __init__(self, parent: tk.Misc, variable: tk.StringVar | None = None, kind: str = "dir",
                  filetypes: list | None = None, on_change: Callable[[str], None] | None = None,
-                 width: int = 40, title: str = "Choose", open_button: bool = False) -> None:
+                 width: int = 40, title: str = "Choose", open_button: bool = False,
+                 initialdir: str | Callable[[], str | None] | None = None) -> None:
         super().__init__(parent)
         self.var = variable or tk.StringVar()
         self.kind, self.filetypes, self.title_text = kind, filetypes, title
+        self.initialdir = initialdir
         self.entry = ttk.Entry(self, textvariable=self.var, width=width)
         self.entry.pack(side="left", fill="x", expand=True)
         ttk.Button(self, text="Browse…", command=self.browse, style="Tiny.TButton").pack(side="left", padx=(4, 0))
         if open_button:
-            ttk.Button(self, text="Open", command=lambda: self.var.get() and open_path(self.var.get()),
-                       style="Tiny.TButton").pack(side="left", padx=(4, 0))
+            ttk.Button(self, text="Open", command=self._open, style="Tiny.TButton").pack(side="left", padx=(4, 0))
         if on_change:
             self.var.trace_add("write", lambda *_: on_change(self.var.get()))
+
+    def _open(self) -> None:
+        raw = self.var.get().strip()
+        if not raw:
+            return
+        target = _dir_base(raw) if self.kind == "dir" and "{" in raw else raw
+        if target:
+            open_path(target)
+
+    def _resolve_initialdir(self) -> str | None:
+        raw = self.initialdir() if callable(self.initialdir) else self.initialdir
+        if not raw:
+            return None
+        p = Path(str(raw).strip())
+        if p.is_dir():
+            return str(p)
+        if p.is_file() and p.parent.is_dir():
+            return str(p.parent)
+        return None
 
     def browse(self) -> None:
         cur = self.var.get().strip()
         if self.kind == "dir":
-            path = filedialog.askdirectory(title=self.title_text, initialdir=cur or None, parent=self.winfo_toplevel())
-        elif self.kind == "append":
-            path = filedialog.asksaveasfilename(title=self.title_text, initialfile=cur, filetypes=self.filetypes or [],
-                                                defaultextension=".csv", confirmoverwrite=False,
-                                                parent=self.winfo_toplevel())
-        elif self.kind == "save":
-            path = filedialog.asksaveasfilename(title=self.title_text, initialfile=cur, filetypes=self.filetypes or [],
-                                                parent=self.winfo_toplevel())
+            base = _dir_base(cur)
+            init = base if base and Path(base).is_dir() else self._resolve_initialdir()
+            path = filedialog.askdirectory(title=self.title_text, initialdir=init, parent=self.winfo_toplevel())
+            if path:
+                if "{" in cur:
+                    suffix = cur[len(base):] if base and cur.startswith(base) else ("/" + cur if cur.startswith("{") else "")
+                    self.var.set(path + suffix)
+                else:
+                    self.var.set(path)
+            return
+        elif self.kind in ("append", "save"):
+            if cur:
+                p = Path(cur)
+                init_dir = str(p.parent) if p.parent != Path(".") and p.parent.is_dir() else self._resolve_initialdir()
+                init_file = p.name
+            else:
+                init_dir, init_file = self._resolve_initialdir(), ""
+            kw = dict(title=self.title_text, initialdir=init_dir, initialfile=init_file,
+                      filetypes=self.filetypes or [], parent=self.winfo_toplevel())
+            if self.kind == "append":
+                kw.update(defaultextension=".csv", confirmoverwrite=False)
+            path = filedialog.asksaveasfilename(**kw)
         else:
-            path = filedialog.askopenfilename(title=self.title_text, initialdir=None, filetypes=self.filetypes or [],
+            init_dir = (str(Path(cur).parent)
+                        if cur and Path(cur).parent != Path(".") and Path(cur).parent.is_dir()
+                        else self._resolve_initialdir())
+            path = filedialog.askopenfilename(title=self.title_text, initialdir=init_dir, filetypes=self.filetypes or [],
                                               parent=self.winfo_toplevel())
         if path:
             self.var.set(path)
@@ -440,8 +488,12 @@ class DataTable(ttk.Frame):
         copy_to_clipboard(self, "\n".join("\t".join(str(c) for c in r) for r in rows))
 
     def export_csv(self) -> None:
-        path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV", "*.csv")],
-                                            parent=self.winfo_toplevel())
+        app = app_of(self)
+        cur = getattr(app, "current", None) if app else None
+        active = getattr(cur, "active", None) or cur
+        init_dir = active.output_dir() if active and hasattr(active, "output_dir") else None
+        path = filedialog.asksaveasfilename(defaultextension=".csv", initialdir=init_dir,
+                                            filetypes=[("CSV", "*.csv")], parent=self.winfo_toplevel())
         if path:
             with open(path, "w", newline="", encoding="utf-8-sig") as fh:
                 csv.writer(fh).writerows(self.to_rows(all_rows=True))

@@ -83,11 +83,17 @@ class DocPacker(Tool):
     title = "Doc Packer"
     icon = "📦"
     order = 20
+    input_path_key = "input_folder"
+    output_path_key = "output_folder"
     description = "Recognise a person's documents, check them, fix pages by hand and build one PDF package."
 
     @classmethod
     def options(cls) -> list[Opt]:
         return [
+            Opt("docpacker.input_folder", "", "Input folder", "folder", section="Folders",
+                help="Default folder when clicking Add files, Add folder or WhatsApp ZIP."),
+            Opt("docpacker.output_folder", "", "Output folder (save packages to)", "folder", section="Folders",
+                help="Where built PDF packages are saved (empty = next to the first file)."),
             Opt("docpacker.doctypes", default_doctypes(), "Document types", "record", editor="doctypes",
                 section="Documents & checks",
                 help="Each type has signals (how it is recognised - toggle, set necessity and weight) and checks."),
@@ -108,7 +114,6 @@ class DocPacker(Tool):
             Opt("docpacker.recursive", True, "Look inside sub-folders when adding a folder", "bool", section="Adding files"),
             Opt("docpacker.include_unassigned", False, "Also put unrecognised files at the end of the package", "bool",
                 section="Package"),
-            Opt("docpacker.output_folder", "", "Save packages to (empty = next to the first file)", "folder", section="Package"),
             Opt("docpacker.output_subfolder", "", "Sub-folder for each package", "str", section="Package",
                 help="Created inside the folder above. Any field, e.g. {surname} or {year}/{name}. Empty = none."),
             Opt("docpacker.output_name", "{name} - package", "Package file name", "str", section="Package",
@@ -514,12 +519,13 @@ class DocPacker(Tool):
 
     def pick_files(self) -> None:
         exts = " ".join(f"*{e}" for e in supported_extensions())
-        paths = filedialog.askopenfilenames(title="Add documents", filetypes=[("Documents & images", exts), ("All", "*.*")])
+        paths = filedialog.askopenfilenames(title="Add documents", initialdir=self.input_dir(),
+                                            filetypes=[("Documents & images", exts), ("All", "*.*")])
         if paths:
             self.add_paths(list(paths))
 
     def pick_folder(self) -> None:
-        folder = filedialog.askdirectory(title="Folder with the person's documents")
+        folder = filedialog.askdirectory(title="Folder with the person's documents", initialdir=self.input_dir())
         if folder:
             self.add_paths([folder])
 
@@ -606,7 +612,7 @@ class DocPacker(Tool):
     # ------------------------------------------------------------------ WhatsApp import (the window is ui/whatsapp_import.py)
     def open_whatsapp(self, zips: list[str] | None = None) -> None:
         if not zips:
-            zips = list(filedialog.askopenfilenames(title="WhatsApp export (ZIP)",
+            zips = list(filedialog.askopenfilenames(title="WhatsApp export (ZIP)", initialdir=self.input_dir(),
                                                     filetypes=[("ZIP files", "*.zip"), ("All", "*.*")]))
             if not zips:
                 return

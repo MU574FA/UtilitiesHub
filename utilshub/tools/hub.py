@@ -21,6 +21,7 @@ library ...) is left out and logged instead of breaking the whole hub.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 import importlib
 import logging
 import tkinter as tk
@@ -68,8 +69,13 @@ class HubTool(Tool):
     @classmethod
     def pages(cls) -> list[Page]:
         pages: list[Page] = []
-        for member, _ in cls.member_classes():
-            pages += member.pages()
+        base = 200 + cls.order * 10
+        n = 0
+        for member, _label in cls.member_classes():
+            for p in member.pages():
+                group = cls.title if (not p.group or p.group == Tool.settings_group) else p.group
+                pages.append(replace(p, group=group, order=base + n))
+                n += 1
         return pages
 
     # ------------------------------------------------------------------ lifecycle

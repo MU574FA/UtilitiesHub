@@ -118,14 +118,16 @@ class FilePicker(Tool):
     title = "File Picker"
     icon = "🗂"
     order = 30
+    input_path_key = "source"
+    output_path_key = "dest"
     description = "Find the files that belong to a list of names, preview, then copy or move them."
 
     @classmethod
     def options(cls) -> list[Opt]:
         p = "file_picker."
         return [
-            Opt(p + "source", "", "Source folder", "folder", section="Folders"),
-            Opt(p + "dest", "", "Destination folder", "folder", section="Folders"),
+            Opt(p + "source", "", "Source (input) folder", "folder", section="Folders"),
+            Opt(p + "dest", "", "Destination (output) folder", "folder", section="Folders"),
             Opt(p + "recursive", True, "Search sub-folders too", "bool", section="Search"),
             Opt(p + "extensions", "", "Only these extensions (e.g. pdf, docx; empty = all)", "str", section="Search"),
             Opt(p + "mode", "contains", "Match mode", "choice", choices=MODES, section="Search"),
@@ -185,7 +187,9 @@ class FilePicker(Tool):
         row = 0
         for label, key in (("Source folder", "source"), ("Destination", "dest")):
             ttk.Label(form, text=label).grid(row=row, column=0, sticky="w", pady=2)
-            FolderEntry(form, var(key), "dir", open_button=True).grid(row=row, column=1, sticky="ew", pady=2)
+            v = var(key)
+            FolderEntry(form, v, "dir", open_button=True).grid(row=row, column=1, sticky="ew", pady=2)
+            self.sync_var(key, v)
             row += 1
         opts = ttk.Frame(form)
         opts.grid(row=row, column=0, columnspan=2, sticky="ew", pady=4)
@@ -262,7 +266,8 @@ class FilePicker(Tool):
             pass
 
     def names_from_file(self) -> None:
-        path = filedialog.askopenfilename(filetypes=[("Lists", "*.txt *.csv *.xlsx *.xlsm"), ("All", "*.*")])
+        path = filedialog.askopenfilename(initialdir=self.input_dir(),
+                                          filetypes=[("Lists", "*.txt *.csv *.xlsx *.xlsm"), ("All", "*.*")])
         if path:
             self._load_names_file(path)
 
@@ -406,8 +411,8 @@ class FilePicker(Tool):
         if not self.hits:
             info(self.frame, "Run a preview first.")
             return
-        path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="file-picker-report.xlsx",
-                                            filetypes=[("Excel", "*.xlsx")])
+        path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialdir=self.output_dir(),
+                                            initialfile="file-picker-report.xlsx", filetypes=[("Excel", "*.xlsx")])
         if not path:
             return
         found = [[h.name, h.path.name, f"{h.score * 100:.0f}%", str(h.path.parent)] for hs in self.hits.values() for h in hs]

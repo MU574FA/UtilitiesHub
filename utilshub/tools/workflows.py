@@ -32,14 +32,20 @@ class WorkflowsTool(Tool):
     icon = "🧱"
     description = "Build your own step-by-step procedures by snapping bricks together, then run them on any files."
     order = 47
+    input_path_key = "input_folder"
+    output_path_key = "output_root"
 
     @classmethod
     def options(cls) -> list[Opt]:
-        return [Opt("workflows.output_root", "", "Folder for files the workflows make", "folder",
-                    help="PDFs, zips and text files made by a workflow are put here, in a folder per run. "
-                         "Empty = inside the Utils Hub data folder."),
-                Opt("workflows.confirm_changes", True, "Ask before a workflow renames or moves my files", "bool"),
-                Opt("workflows.last", "", "Last workflow opened", "str", advanced=True)]
+        return [
+            Opt("workflows.input_folder", "", "Input folder", "folder", section="Folders",
+                help="Default folder when choosing input files or importing a workflow."),
+            Opt("workflows.output_root", "", "Output folder (files workflows make)", "folder", section="Folders",
+                help="PDFs, zips and text files made by a workflow are put here, in a folder per run. "
+                     "Empty = inside the Utils Hub data folder."),
+            Opt("workflows.confirm_changes", True, "Ask before a workflow renames or moves my files", "bool", section="Running"),
+            Opt("workflows.last", "", "Last workflow opened", "str", advanced=True),
+        ]
 
     stats_when_closed = True          # the store is loaded in __init__, so Home can show the count before the tab is opened
 
@@ -456,14 +462,16 @@ class WorkflowsTool(Tool):
             self._load(Workflow(self.store.unique_name("New workflow")), None)
 
     def export_file(self) -> None:
-        path = filedialog.asksaveasfilename(title="Export workflow", defaultextension=".json", initialfile=f"{self.wf.name}.json",
+        path = filedialog.asksaveasfilename(title="Export workflow", defaultextension=".json",
+                                            initialdir=self.output_dir(), initialfile=f"{self.wf.name}.json",
                                             filetypes=[("Workflow", "*.json")], parent=self.frame.winfo_toplevel())
         if path:
             export_workflow(self.wf, path)
             self.app.notify("Workflow exported", "ok")
 
     def import_file(self) -> None:
-        path = filedialog.askopenfilename(title="Import workflow", filetypes=[("Workflow", "*.json")], parent=self.frame.winfo_toplevel())
+        path = filedialog.askopenfilename(title="Import workflow", initialdir=self.input_dir(),
+                                          filetypes=[("Workflow", "*.json")], parent=self.frame.winfo_toplevel())
         if not path or not self._confirm_discard():
             return
         try:
@@ -476,7 +484,8 @@ class WorkflowsTool(Tool):
 
     # ------------------------------------------------------------------ input files
     def choose_files(self) -> None:
-        paths = filedialog.askopenfilenames(title="Files for the workflow", parent=self.frame.winfo_toplevel())
+        paths = filedialog.askopenfilenames(title="Files for the workflow", initialdir=self.input_dir(),
+                                            parent=self.frame.winfo_toplevel())
         if paths:
             self.set_inputs(list(paths))
 

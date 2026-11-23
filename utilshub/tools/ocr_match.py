@@ -18,12 +18,18 @@ class OcrMatch(Tool):
     title = "OCR & Match"
     icon = "🔎"
     order = 45
+    input_path_key = "input_folder"
+    output_path_key = "output_folder"
     description = "Read text from scans, PDFs and photos (OCR), then find words or patterns: regex or similarity."
 
     @classmethod
     def options(cls) -> list[Opt]:
         p = cls.id + "."
         return [
+            Opt(p + "input_folder", "", "Input folder", "folder", section="Folders",
+                help="Default folder when clicking Add files…."),
+            Opt(p + "output_folder", "", "Output folder", "folder", section="Folders",
+                help="Default folder when clicking Save text… or exporting results."),
             Opt(p + "mode", "regex", "Find by", "choice", section="Matching",
                 choices=[("regex", "Regular expression"), ("similar", "Similarity (typos, word order, Arabic spelling)")]),
             Opt(p + "threshold", 80, "Similarity counts from (%)", "percent", min=40, max=100, section="Matching"),
@@ -110,7 +116,8 @@ class OcrMatch(Tool):
 
     def pick_files(self) -> None:
         exts = " ".join(f"*{e}" for e in supported_extensions())
-        paths = filedialog.askopenfilenames(title="Add files", filetypes=[("Documents & images", exts), ("All", "*.*")])
+        paths = filedialog.askopenfilenames(title="Add files", initialdir=self.input_dir(),
+                                            filetypes=[("Documents & images", exts), ("All", "*.*")])
         if paths:
             self.add_paths(list(paths))
 
@@ -180,7 +187,8 @@ class OcrMatch(Tool):
         self.app.notify("Text copied")
 
     def save_text(self) -> None:
-        path = filedialog.asksaveasfilename(defaultextension=".txt", filetypes=[("Text", "*.txt")])
+        path = filedialog.asksaveasfilename(defaultextension=".txt", initialdir=self.output_dir(),
+                                            filetypes=[("Text", "*.txt")])
         if path:
             Path(path).write_text(self.text.get("1.0", "end-1c"), encoding="utf-8")
 

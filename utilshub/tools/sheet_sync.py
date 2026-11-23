@@ -19,12 +19,18 @@ class SheetSync(Tool):
     title = "Sheet Sync"
     icon = "🔄"
     order = 45
+    input_path_key = "input_folder"
+    output_path_key = "output_folder"
     description = "Update an old sheet from a new one by key; review every change before applying."
 
     @classmethod
     def options(cls) -> list[Opt]:
         p = "sheet_sync."
         return [
+            Opt(p + "input_folder", "", "Input folder", "folder", section="Folders",
+                help="Default folder when browsing for the old or new spreadsheet."),
+            Opt(p + "output_folder", "", "Output folder", "folder", section="Folders",
+                help="Default folder when saving the updated spreadsheet or change log."),
             Opt(p + "ignore_case", True, "Ignore case when matching keys", "bool"),
             Opt(p + "add_new", True, "Add rows that exist only in the new file", "bool"),
             Opt(p + "skip_blank", True, "Keep the old value when the new cell is empty", "bool"),
@@ -48,8 +54,10 @@ class SheetSync(Tool):
         top.pack(fill="x")
         top.columnconfigure(0, weight=1)
         top.columnconfigure(1, weight=1)
-        self.old = SheetPicker(top, "Old file (will be updated)", on_load=self._loaded, pick_column=False, path=self.get("old_path"))
-        self.new = SheetPicker(top, "New file (the fresh data)", on_load=self._loaded, pick_column=False, path=self.get("new_path"))
+        self.old = SheetPicker(top, "Old file (will be updated)", on_load=self._loaded, pick_column=False,
+                               path=self.get("old_path"), initialdir=self.input_dir)
+        self.new = SheetPicker(top, "New file (the fresh data)", on_load=self._loaded, pick_column=False,
+                               path=self.get("new_path"), initialdir=self.input_dir)
         self.old.grid(row=0, column=0, sticky="ew", padx=(0, 6))
         self.new.grid(row=0, column=1, sticky="ew")
         self.old.path.trace_add("write", lambda *_: self.put("old_path", self.old.path.get()))
@@ -177,8 +185,8 @@ class SheetSync(Tool):
             return
         src = self.old.path.get().strip().strip('"')
         ext = ".csv" if src.lower().endswith((".csv", ".tsv", ".txt")) else ".xlsx"
-        path = filedialog.asksaveasfilename(defaultextension=ext, initialfile=f"updated{ext}",
-                                            filetypes=[("Spreadsheet", f"*{ext}")])
+        path = filedialog.asksaveasfilename(defaultextension=ext, initialdir=self.output_dir(),
+                                            initialfile=f"updated{ext}", filetypes=[("Spreadsheet", f"*{ext}")])
         if not path:
             return
         try:
@@ -193,7 +201,8 @@ class SheetSync(Tool):
         if not self.plan:
             info(self.frame, "Preview first.")
             return
-        path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="sync-log.xlsx",
+        path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialdir=self.output_dir(),
+                                            initialfile="sync-log.xlsx",
                                             filetypes=[("Excel", "*.xlsx"), ("CSV", "*.csv")])
         if path:
             rows = change_log_rows(self.plan)

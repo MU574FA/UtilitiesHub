@@ -265,8 +265,9 @@ class WhatsAppImport:
 
     # ================================================================== packages
     def pick_zip(self) -> None:
+        init = self.host.input_dir() if hasattr(self.host, "input_dir") else None
         paths = filedialog.askopenfilenames(parent=self.top, title="WhatsApp export (ZIP)",
-                                            filetypes=[("ZIP files", "*.zip"), ("All", "*.*")])
+                                            initialdir=init, filetypes=[("ZIP files", "*.zip"), ("All", "*.*")])
         if paths:
             self.add_zips(list(paths))
 
