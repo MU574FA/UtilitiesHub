@@ -1,4 +1,5 @@
-"""Windows of the Visa Tracker: person form, contact log, page picker, spreadsheet import, message templates.
+"""Windows of the Visa Tracker: person form, contact log, page picker, multi-visa PDF review/import, spreadsheet import,
+candidate info popup, message templates.
 
 Every dialog is non-blocking: it gets a callback and calls it when the user confirms (so it is easy to test).
 `tool` is the VisaTracker (it provides app, store, policy(), today(), fmt() ...).
@@ -18,12 +19,13 @@ from PIL import ImageTk
 
 from ..core import visa as V
 from ..core import visa_files, visa_io
+from ..core.candidate_lookup import Hit, match_candidate, match_status
 from ..core.render import PreviewUnavailable
 from ..core.sheets import SheetError, load_book
 from ..core.textutil import slugify
 from .autocomplete import attach as autocomplete
 from .thumbs import ThumbGrid, ThumbItem
-from .widgets import Tooltip, confirm, error, info, modal, style_text
+from .widgets import DataTable, Tooltip, confirm, error, info, modal, style_text
 
 
 # --------------------------------------------------------------------------- small helpers
@@ -64,7 +66,7 @@ class DateField(ttk.Frame):
         if today_button:
             b = ttk.Button(self, text="Today", style="Tiny.TButton", command=lambda: self.set(tool.today()))
             b.pack(side="left", padx=(4, 0))
-        self.hint = ttk.Label(self, style="Muted.TLabel", width=24)
+        self.hint = ttk.Label(self, style="Muted.TLabel", width=22)
         self.hint.pack(side="left", padx=(6, 0))
         self.var.trace_add("write", lambda *_: self._update())
         self._update(notify=False)                       # the owner is not ready yet while we are being built
@@ -98,16 +100,91 @@ class DateField(ttk.Frame):
             self.on_change()
 
 
-def _section(parent: tk.Misc, text: str) -> None:
-    ttk.Label(parent, text=text, style="H3.TLabel").pack(anchor="w", pady=(10, 2))
-    ttk.Separator(parent).pack(fill="x", pady=(0, 4))
-
-
 def _bind_close(top: tk.Misc, close: Callable[[], None]) -> None:
     top.bind("<Escape>", lambda e: close())
 
 
-# --------------------------------------------------------------------------- person form
+# --------------------------------------------------------------------------- candidate info pop-up (same as DocPacker)
+def show_candidate_info_popup(parent: tk.Misc, app, name: str, path: str, tab: str = "", name_column: str = "",
+                              header_row: int = 1, passport_no: str = "", dob: str = "",
+                              settings_tool_id: str = "visa",
+                              on_apply: Callable[[Hit], None] | None = None) -> tk.Misc | None:
+    """Show the candidate's row from the configured spreadsheet in a pop-up (same style as DocPacker)."""
+    path = (path or "").strip()
+    if not path:
+        if confirm(parent, "No candidates sheet is chosen yet.\n\nOpen the settings to choose one?"):
+            app.open_settings(settings_tool_id)
+        return None
+    name = (name or "").strip()
+    passport_no = (passport_no or "").strip()
+    if not name and not passport_no:
+        info(parent, "Select a candidate or enter a name first.")
+        return None
+    try:
+        hits = match_candidate(path, name=name, passport_no=passport_no, dob=dob, sheet=tab,
+                               name_column=name_column, header_row=header_row, threshold=0.55)
+    except SheetError as exc:
+        error(parent, str(exc))
+        return None
+    except Exception as exc:
+        error(parent, f"Could not read the sheet: {exc}")
+        return None
+    if not hits:
+        label = name or passport_no
+        info(parent, f"No row for “{label}” was found in {Path(path).name}.")
+        return None
+
+    top, body = modal(parent, f"Candidate info - {name or passport_no}", 480, 0)
+    top.transient(parent.winfo_toplevel())
+    top.bind("<Escape>", lambda e: top.destroy())
+    head = tk.StringVar()
+    ttk.Label(body, textvariable=head, style="Muted.TLabel", wraplength=440, justify="left").pack(anchor="w")
+    tree = ttk.Treeview(body, columns=("field", "value"), show="headings",
+                        height=min(14, max(len(h.fields) for h in hits)), selectmode="browse")
+    tree.heading("field", text="Field")
+    tree.heading("value", text="Value")
+    tree.column("field", width=155, stretch=False)
+    tree.column("value", width=295)
+
+    current = [0]
+
+    def show(i: int) -> None:
+        current[0] = i
+        h = hits[i]
+        how = {"passport": "passport match", "dob+name": "DOB + name", "partial_name": "partial name"}.get(h.matched_by, "name")
+        head.set(f"{Path(path).name} - row {h.row} - match {h.score:.0%} ({how})")
+        tree.delete(*tree.get_children())
+        for k, v in h.fields:
+            tree.insert("", "end", values=(k, v))
+
+    if len(hits) > 1:
+        labels = [f"{h.candidate_name or (h.fields[0][1] if h.fields else '?')}  ({h.score:.0%}, row {h.row})" for h in hits]
+        pick = tk.StringVar(value=labels[0])
+        cb = ttk.Combobox(body, textvariable=pick, values=labels, state="readonly")
+        cb.pack(fill="x", pady=(6, 0))
+        cb.bind("<<ComboboxSelected>>", lambda e: show(labels.index(pick.get())))
+    tree.pack(fill="both", expand=True, pady=6)
+
+    def copy_row() -> None:
+        sel = tree.selection()
+        rows = [tree.item(s, "values") for s in sel] or [tree.item(c, "values") for c in tree.get_children()]
+        top.clipboard_clear()
+        top.clipboard_append("\n".join(f"{k}: {v}" for k, v in rows))
+
+    bar = ttk.Frame(body)
+    bar.pack(fill="x")
+    if on_apply is not None:
+        def apply_now() -> None:
+            on_apply(hits[current[0]])
+            top.destroy()
+        ttk.Button(bar, text="Fill empty fields", command=apply_now).pack(side="left")
+    ttk.Button(bar, text="Close", style="Accent.TButton", command=top.destroy).pack(side="right")
+    ttk.Button(bar, text="Copy", command=copy_row).pack(side="right", padx=6)
+    show(0)
+    return top
+
+
+# --------------------------------------------------------------------------- person form (DocPacker-style grid)
 class PersonDialog:
     """Add or edit one person.  on_save(person) -> True when stored (False keeps the window open)."""
 
@@ -116,8 +193,8 @@ class PersonDialog:
         self.tool, self.app, self.on_save = tool, tool.app, on_save
         self.is_new = person is None
         self.person = copy.deepcopy(person) if person else V.Person(**(defaults or {}))
-        self.win, frame = modal(tool.frame, "Add person" if self.is_new else f"Edit {person.name}", width=800, height=700)
-        self.win.minsize(700, 520)
+        self.win, frame = modal(tool.frame, "Add person" if self.is_new else f"Edit {person.name}", width=860, height=720)
+        self.win.minsize(720, 540)
         _bind_close(self.win, self.close)
         self.win.bind("<Control-Return>", lambda e: self.save())
 
@@ -125,6 +202,7 @@ class PersonDialog:
         bar.pack(side="bottom", fill="x", pady=(8, 0))
         self.scan_btn = ttk.Button(bar, text="📷 Fill from passport scan…", command=self.fill_from_passport)
         self.scan_btn.pack(side="left")
+        ttk.Button(bar, text="👤 Candidate info", command=self.show_candidate_info).pack(side="left", padx=6)
         ttk.Button(bar, text="Save  (Ctrl+Enter)", style="Accent.TButton", command=lambda: self.save()).pack(side="right")
         if self.is_new:
             ttk.Button(bar, text="Save & add another", command=lambda: self.save(again=True)).pack(side="right", padx=6)
@@ -137,83 +215,110 @@ class PersonDialog:
         self.vars: dict[str, tk.StringVar] = {}
         p, t = self.person, tool
 
-        def entry(parent, key, width=26, value=None):
+        def make_group(title: str, cols: int = 3) -> ttk.LabelFrame:
+            box = ttk.LabelFrame(body, text=title, padding=(8, 4, 8, 6))
+            box.pack(fill="x", pady=(0, 8))
+            for c in range(cols):
+                box.columnconfigure(c, weight=1, uniform=f"grp_{title}")
+            return box
+
+        def place(box: ttk.LabelFrame, r: int, c: int, label: str, builder, colspan: int = 1) -> None:
+            cell = ttk.Frame(box)
+            cell.grid(row=r, column=c, columnspan=colspan, sticky="ew", padx=(0, 10), pady=(0, 4))
+            ttk.Label(cell, text=label, style="Muted.TLabel").pack(anchor="w")
+            builder(cell)
+
+        def entry(parent, key, width=22, value=None):
             var = tk.StringVar(value=str(getattr(p, key) if value is None else value))
             self.vars[key] = var
             e = ttk.Entry(parent, textvariable=var, width=width)
-            e.pack(side="left")
-            autocomplete(e, f"visa.{key}")          # keys without a registered box (dates ...) simply have no defaults
+            e.pack(fill="x")
+            autocomplete(e, f"visa.{key}")
             return var
 
-        def row(parent, *cells):
-            """cells: (label, builder)  -> one line with several labelled fields."""
-            line = ttk.Frame(parent)
-            line.pack(fill="x", pady=3)
-            for label, build in cells:
-                cell = ttk.Frame(line)
-                cell.pack(side="left", padx=(0, 18))
-                ttk.Label(cell, text=label, width=15).pack(side="left")
-                build(cell)
-
-        _section(body, "Person")
-        row(body, ("Name *", lambda c: (entry(c, "name", 52), None)[1]))
-        row(body, ("Passport no.", lambda c: entry(c, "passport_no", 18)),
-            ("Passport expiry", lambda c: self._date(c, "passport_expiry")))
-        row(body, ("Nationality", lambda c: entry(c, "nationality", 18)), ("Phone / WhatsApp", lambda c: entry(c, "phone", 20)))
-        row(body, ("E-mail", lambda c: entry(c, "email", 26)), ("Position", lambda c: entry(c, "position", 20)))
+        # -- Candidate (DocPacker-style labelled grid) ---------------------------------------------
+        cand_box = make_group("Candidate", cols=3)
+        place(cand_box, 0, 0, "Full name *", lambda c: entry(c, "name", 40), colspan=2)
 
         def group_box(c):
             cb = ttk.Combobox(c, textvariable=self.vars.setdefault("group", tk.StringVar(value=p.group)),
-                              values=t.store.groups(), width=24)
-            cb.pack(side="left")
+                              values=t.store.groups(), width=20)
+            cb.pack(fill="x")
             autocomplete(cb, "visa.group", extra=t.store.groups)
             Tooltip(cb, "A batch, project or agency - lets you filter and report by group.")
-        row(body, ("Group / batch", group_box))
+        place(cand_box, 0, 2, "Group / batch", group_box)
+        place(cand_box, 1, 0, "Passport no.", lambda c: entry(c, "passport_no", 18))
+        place(cand_box, 1, 1, "Passport expiry", lambda c: self._date(c, "passport_expiry"), colspan=2)
+        place(cand_box, 2, 0, "Nationality", lambda c: entry(c, "nationality", 18))
+        place(cand_box, 2, 1, "Phone / WhatsApp", lambda c: entry(c, "phone", 20))
+        place(cand_box, 2, 2, "Position", lambda c: entry(c, "position", 20))
+        place(cand_box, 3, 0, "E-mail", lambda c: entry(c, "email", 28), colspan=2)
 
-        _section(body, "Visa")
+        # -- Visa ----------------------------------------------------------------------------------
+        visa_box = make_group("Visa", cols=3)
         self.vars["visa_type"] = tk.StringVar(value=p.visa_type)
 
         def type_box(c):
             cb = ttk.Combobox(c, textvariable=self.vars["visa_type"], values=[x for x in t.get("visa_types")], width=22)
-            cb.pack(side="left")
+            cb.pack(fill="x")
             autocomplete(cb, "visa.visa_type")
-        row(body, ("Visa no.", lambda c: entry(c, "visa_no", 20)), ("Visa type", type_box))
+
         self.days_var = tk.StringVar(value=str(p.visa_days or ""))
 
         def days_box(c):
-            ttk.Spinbox(c, textvariable=self.days_var, from_=0, to=720, width=7).pack(side="left")
-            ttk.Label(c, text=f"days  (empty = {t.policy().default_days})", style="Muted.TLabel").pack(side="left", padx=6)
-        row(body, ("Issue date", lambda c: self._date(c, "visa_issue", recalc=True)), ("Entry window", days_box))
+            row_f = ttk.Frame(c)
+            row_f.pack(fill="x")
+            ttk.Spinbox(row_f, textvariable=self.days_var, from_=0, to=720, width=7).pack(side="left")
+            ttk.Label(row_f, text=f"days (empty = {t.policy().default_days})", style="Muted.TLabel").pack(side="left", padx=6)
+
+        place(visa_box, 0, 0, "Visa no.", lambda c: entry(c, "visa_no", 20))
+        place(visa_box, 0, 1, "Visa type", type_box)
+        place(visa_box, 0, 2, "Entry window", days_box)
+        place(visa_box, 1, 0, "Issue date", lambda c: self._date(c, "visa_issue", recalc=True), colspan=2)
+        place(visa_box, 2, 0, "Fixed last entry (optional)", lambda c: self._date(c, "visa_deadline", recalc=True), colspan=2)
         self.days_var.trace_add("write", lambda *_: self._recalc())
-        row(body, ("Fixed last entry", lambda c: self._date(c, "visa_deadline", recalc=True)))
-        self.deadline_lbl = ttk.Label(body, text="", style="H3.TLabel")
-        self.deadline_lbl.pack(anchor="w", pady=(4, 0))
-        ttk.Label(body, text="Fill the issue date and the deadline is worked out for you. Only use 'Fixed last entry' "
-                             "when the visa shows an exact last day.", style="Muted.TLabel", wraplength=700,
+
+        dl_frame = ttk.Frame(visa_box)
+        dl_frame.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+        self.deadline_lbl = ttk.Label(dl_frame, text="", style="H3.TLabel")
+        self.deadline_lbl.pack(anchor="w")
+        ttk.Label(dl_frame, text="Fill the issue date and the deadline is worked out for you. Only use 'Fixed last entry' "
+                                 "when the visa shows an exact last day.", style="Muted.TLabel", wraplength=760,
                   justify="left").pack(anchor="w")
 
-        _section(body, "Ticket")
+        # -- Ticket --------------------------------------------------------------------------------
+        ticket_box_grp = make_group("Ticket", cols=3)
         ticket_cb_holder: dict = {}
 
         def ticket_box(c):
-            cbx, get, put = make_choice(c, V.TICKET_STATES, p.ticket_status, width=24)
-            cbx.pack(side="left")
+            cbx, get, put = make_choice(c, V.TICKET_STATES, p.ticket_status, width=22)
+            cbx.pack(fill="x")
             ticket_cb_holder["get"] = get
-        row(body, ("Ticket", ticket_box), ("Flight date", lambda c: self._date(c, "flight_date")))
-        self._ticket_get = lambda: ticket_cb_holder["get"]()
-        row(body, ("Flight no.", lambda c: entry(c, "flight_no", 22)))
 
-        _section(body, "Notes")
+        place(ticket_box_grp, 0, 0, "Ticket status", ticket_box)
+        place(ticket_box_grp, 0, 1, "Flight no.", lambda c: entry(c, "flight_no", 20))
+        place(ticket_box_grp, 1, 0, "Flight date", lambda c: self._date(c, "flight_date"), colspan=2)
+        self._ticket_get = lambda: ticket_cb_holder["get"]()
+
+        # -- Extra fields & Notes ------------------------------------------------------------------
+        notes_box = make_group("Notes & Extra Fields", cols=3)
         self.extra_vars: dict[str, tk.StringVar] = {}
-        for label in t.custom_fields():
+        custom = t.custom_fields()
+        for n, label in enumerate(custom):
             var = tk.StringVar(value=str(p.extra.get(label, "")))
             self.extra_vars[label] = var
-            row(body, (label, lambda c, v=var, l=label: autocomplete(self._pack(ttk.Entry(c, textvariable=v, width=40)),
-                                                                      f"visa.custom.{slugify(l)}")))
-        self.notes = tk.Text(body, height=4, wrap="word")
+            r, c = divmod(n, 3)
+            place(notes_box, r, c, label,
+                  lambda cell, v=var, l=label: autocomplete(self._pack_fill(ttk.Entry(cell, textvariable=v)),
+                                                            f"visa.custom.{slugify(l)}"))
+        note_row = (len(custom) + 2) // 3 if custom else 0
+        nf = ttk.Frame(notes_box)
+        nf.grid(row=note_row, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+        ttk.Label(nf, text="Notes", style="Muted.TLabel").pack(anchor="w")
+        self.notes = tk.Text(nf, height=4, wrap="word")
         style_text(frame, self.notes)
         self.notes.insert("1.0", p.notes)
-        self.notes.pack(fill="x", pady=4)
+        self.notes.pack(fill="x", pady=(2, 0))
         autocomplete(self.notes, "visa.notes")
         scroll.bind_children()
         self._recalc()
@@ -221,13 +326,13 @@ class PersonDialog:
 
     # ------------------------------------------------------------------ pieces
     @staticmethod
-    def _pack(widget):
-        widget.pack(side="left")
+    def _pack_fill(widget):
+        widget.pack(fill="x")
         return widget
 
     def _date(self, parent, key: str, recalc: bool = False) -> DateField:
         field_ = DateField(parent, self.tool, getattr(self.person, key), on_change=self._recalc if recalc else None)
-        field_.pack(side="left")
+        field_.pack(anchor="w")
         setattr(self, f"date_{key}", field_)
         return field_
 
@@ -269,6 +374,25 @@ class PersonDialog:
                                          f"{V.human_days(n) + ' left' if n >= 0 else 'passed ' + V.human_days(n)}", style=style)
 
     # ------------------------------------------------------------------ actions
+    def show_candidate_info(self) -> None:
+        path, tab, name_col, header_row = self.tool.candidate_sheet_config()
+
+        def apply_hit(hit: Hit) -> None:
+            fmap = hit.field_map()
+            filled = []
+            for key in ("name", "passport_no", "nationality", "phone", "email", "position", "group"):
+                val = fmap.get(key, "")
+                if val and key in self.vars and not self.vars[key].get().strip():
+                    self.vars[key].set(val)
+                    filled.append(key.replace("_", " "))
+            if filled:
+                self.app.notify("Filled from candidate sheet: " + ", ".join(filled), "ok")
+
+        show_candidate_info_popup(
+            self.win, self.app, self.vars["name"].get().strip(), path, tab, name_col, header_row,
+            passport_no=self.vars["passport_no"].get().strip(), settings_tool_id=self.tool.id, on_apply=apply_hit,
+        )
+
     def fill_from_passport(self) -> None:
         from ..core import ocr
         from ..core.mrz import passport_summary
@@ -714,6 +838,473 @@ class PagePicker:
                             bool(self.apply_var.get() and dates))
         self.close()
         self.on_done(result)
+
+    def close(self) -> None:
+        self.win.destroy()
+
+
+# --------------------------------------------------------------------------- multi-visa PDF semi-auto review & import
+@dataclass
+class VisaImportItem:
+    """One extracted visa page ready for user review before importing."""
+    page: int
+    extracted: visa_files.ExtractedVisa
+    selected: bool = False
+    candidate_hits: list[Hit] = field(default_factory=list)
+    match_state: str = "nosheet"              # match | possible | none | nosheet
+    selected_hit_idx: int = 0
+    existing_id: str = ""
+    fields: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def current_hit(self) -> Hit | None:
+        if 0 <= self.selected_hit_idx < len(self.candidate_hits):
+            return self.candidate_hits[self.selected_hit_idx]
+        return None
+
+
+class VisaPdfImportDialog:
+    """Semi-auto extraction from a multi-visa PDF: extracts every visa page, checks each against the candidate
+    information sheet (handling passport vs. list name differences), and lets the user review, edit, and choose
+    which visas to import before anything is added."""
+
+    def __init__(self, tool, source: str,
+                 on_done: Callable[[str, list[VisaImportItem], bool], None]) -> None:
+        self.tool, self.app, self.source, self.on_done = tool, tool.app, str(source), on_done
+        self.items: list[VisaImportItem] = []
+        self.current_page: int | None = None
+        self._loading_editor = False
+        self._sheet_error = ""
+
+        name = Path(self.source).name
+        self.win, frame = modal(tool.frame, f"Review extracted visas - {name}", width=1240, height=780)
+        self.win.minsize(960, 600)
+        _bind_close(self.win, self.close)
+
+        # -- top bar -------------------------------------------------------------------------------
+        top = ttk.Frame(frame)
+        top.pack(fill="x")
+        ttk.Label(top, text=f"📄 {name}", style="H3.TLabel").pack(side="left")
+        self.status = ttk.Label(top, text="Reading visa pages and checking candidate list…", style="Muted.TLabel")
+        self.status.pack(side="left", padx=12)
+        self.sheet_lbl = ttk.Label(top, text="", style="Muted.TLabel")
+        self.sheet_lbl.pack(side="right")
+
+        # -- bottom bar (packed first so it stays visible) -----------------------------------------
+        bottom = ttk.Frame(frame)
+        bottom.pack(side="bottom", fill="x", pady=(8, 0))
+        opts = ttk.Frame(bottom)
+        opts.pack(fill="x", pady=(0, 6))
+        self.attach_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(opts, text="Attach each visa's single PDF page to the person's Documents",
+                        variable=self.attach_var).pack(side="left")
+        ttk.Label(opts, text="Group (optional):").pack(side="left", padx=(16, 4))
+        self.batch_group = tk.StringVar(value=tool._defaults().get("group", ""))
+        ttk.Entry(opts, textvariable=self.batch_group, width=20).pack(side="left")
+
+        btns = ttk.Frame(bottom)
+        btns.pack(fill="x")
+        self.summary_lbl = ttk.Label(btns, text="", style="H3.TLabel")
+        self.summary_lbl.pack(side="left")
+        self.import_btn = ttk.Button(btns, text="Import selected visas", style="Accent.TButton",
+                                     command=self.run, state="disabled")
+        self.import_btn.pack(side="right")
+        ttk.Button(btns, text="Cancel", command=self.close).pack(side="right", padx=6)
+
+        # -- main split: left = extracted visas table, right = preview + editable review -----------
+        paned = ttk.PanedWindow(frame, orient="horizontal")
+        paned.pack(fill="both", expand=True, pady=(8, 0))
+
+        left = ttk.Frame(paned)
+        paned.add(left, weight=3)
+        tbar = ttk.Frame(left)
+        tbar.pack(fill="x", pady=(0, 4))
+        for text, cmd in (("☑ Toggle use", self.toggle_selected),
+                          ("Select matched", self.select_matched),
+                          ("Select all", self.select_all),
+                          ("Select none", self.select_none)):
+            ttk.Button(tbar, text=text, style="Tiny.TButton", command=cmd).pack(side="left", padx=(0, 4))
+        self.only_visas = tk.BooleanVar(value=True)
+        ttk.Checkbutton(tbar, text="Hide non-visa pages", variable=self.only_visas,
+                        command=self._rebuild_table).pack(side="right")
+
+        cols = [("use", "Use", 42, "center"), ("page", "Page", 48, "center"), ("name", "Name (review)", 175, "w"),
+                ("passport", "Passport", 92, "w"), ("issued", "Issued", 88, "w"), ("days", "Days", 46, "e"),
+                ("candidate", "Candidate list check", 210, "w"), ("tracker", "Tracker", 68, "w")]
+        self.table = DataTable(left, cols, height=16, searchable=True, stretch="candidate",
+                               on_select=self._row_selected, on_double=lambda iid: self.toggle_selected())
+        self.table.tag_colors(match="ok", possible="warn", none="muted", nosheet="fg")
+        self.table.pack(fill="both", expand=True)
+        self.table.tree.bind("<space>", lambda e: (self.toggle_selected(), "break")[1])
+
+        right = ttk.Frame(paned, padding=(8, 0, 0, 0))
+        paned.add(right, weight=2)
+        self.preview = PagePreview(right, self.app)
+        if hasattr(self.preview, "canvas"):
+            self.preview.canvas.configure(height=240)
+        self.preview.pack(fill="both", expand=True)
+
+        # Editable fields for the currently selected visa (DocPacker-style label-above-entry grid)
+        ed_box = ttk.LabelFrame(right, text="Extracted visa (review & edit)", padding=(8, 4, 8, 6))
+        ed_box.pack(fill="x", pady=(6, 0))
+        for c in range(3):
+            ed_box.columnconfigure(c, weight=1, uniform="ed")
+        self.ed_vars: dict[str, tk.StringVar] = {}
+        ed_specs = [
+            ("name", "Full name", 0, 0, 2), ("passport_no", "Passport no.", 0, 2, 1),
+            ("nationality", "Nationality", 1, 0, 1), ("visa_issue", "Date of issue (YYYY-MM-DD)", 1, 1, 1),
+            ("visa_days", "Entry validity (days)", 1, 2, 1),
+            ("visa_no", "Entry visa no.", 2, 0, 1), ("visa_type", "Visa type", 2, 1, 2),
+            ("phone", "Phone / WhatsApp", 3, 0, 1), ("email", "E-mail", 3, 1, 1), ("position", "Position", 3, 2, 1),
+        ]
+        for key, label, r, c, span in ed_specs:
+            cell = ttk.Frame(ed_box)
+            cell.grid(row=r, column=c, columnspan=span, sticky="ew", padx=(0, 6), pady=(0, 3))
+            ttk.Label(cell, text=label, style="Muted.TLabel").pack(anchor="w")
+            var = tk.StringVar()
+            var.trace_add("write", lambda *_, k=key: self._field_edited(k))
+            self.ed_vars[key] = var
+            ttk.Entry(cell, textvariable=var).pack(fill="x")
+
+        # Candidate list check panel for the selected visa
+        cand_box = ttk.LabelFrame(right, text="Candidate list check", padding=(8, 4, 8, 6))
+        cand_box.pack(fill="x", pady=(6, 0))
+        self.cand_status_lbl = ttk.Label(cand_box, text="Select a visa page to inspect its match.", style="Muted.TLabel",
+                                         wraplength=420, justify="left")
+        self.cand_status_lbl.pack(anchor="w")
+        self.cand_pick_var = tk.StringVar()
+        self.cand_pick_cb = ttk.Combobox(cand_box, textvariable=self.cand_pick_var, state="readonly")
+        self.cand_pick_cb.pack(fill="x", pady=(4, 2))
+        self.cand_pick_cb.bind("<<ComboboxSelected>>", lambda e: self._candidate_hit_picked())
+        self.cand_detail_lbl = ttk.Label(cand_box, text="", style="Muted.TLabel", wraplength=420, justify="left")
+        self.cand_detail_lbl.pack(anchor="w", pady=(2, 4))
+        cbtns = ttk.Frame(cand_box)
+        cbtns.pack(fill="x")
+        ttk.Button(cbtns, text="Use candidate name", style="Tiny.TButton",
+                   command=self.use_candidate_name).pack(side="left", padx=(0, 4))
+        ttk.Button(cbtns, text="Fill contact info", style="Tiny.TButton",
+                   command=self.fill_from_candidate).pack(side="left", padx=(0, 4))
+        ttk.Button(cbtns, text="👤 View full row", style="Tiny.TButton",
+                   command=self.view_candidate_row).pack(side="left")
+
+        _grab(self.win)
+        self._start_extract()
+
+    # ------------------------------------------------------------------ background extraction
+    def _start_extract(self) -> None:
+        from ..core import ocr
+        cfg = ocr.OcrConfig.from_settings(self.app.settings)
+        ocr_pages = self.tool.get("find_ocr_pages")
+        sheet_path, sheet_tab, name_col, header_row = self.tool.candidate_sheet_config()
+        source = self.source
+
+        def work(job):
+            texts, err = visa_files.read_page_texts(source, cfg, ocr_pages)
+            extracted = visa_files.extract_visas_from_texts(texts)
+            matches: list[tuple[list[Hit], str]] = []
+            sheet_err = ""
+            for ex in extracted:
+                if sheet_path and not sheet_err:
+                    try:
+                        hits = match_candidate(
+                            sheet_path, name=ex.full_name, passport_no=ex.passport_no, dob=ex.date_of_birth,
+                            sheet=sheet_tab, name_column=name_col, header_row=header_row, threshold=0.55,
+                        )
+                        matches.append((hits, match_status(hits)))
+                    except Exception as exc:
+                        sheet_err = str(exc)
+                        matches.append(([], "nosheet"))
+                else:
+                    matches.append(([], "nosheet"))
+            return extracted, matches, err, sheet_path, sheet_err
+
+        self.app.jobs.submit(work, "Extracting visas from PDF", tool=self.tool.id, on_done=self._extract_done,
+                             on_error=self._extract_failed, serial_key="visa.pdf_import")
+
+    def _extract_failed(self, message: str) -> None:
+        if self.win.winfo_exists():
+            self.status.configure(text=f"Could not read PDF: {message}", style="Err.TLabel")
+
+    def _extract_done(self, result) -> None:
+        if not self.win.winfo_exists():
+            return
+        extracted, matches, err, sheet_path, sheet_err = result
+        self._sheet_error = sheet_err
+        if sheet_path and not sheet_err:
+            self.sheet_lbl.configure(text=f"Candidate sheet: {Path(sheet_path).name}")
+        elif sheet_err:
+            self.sheet_lbl.configure(text=f"Sheet error: {sheet_err}", style="Warn.TLabel")
+        else:
+            self.sheet_lbl.configure(text="No candidate sheet configured (Settings > Visa Tracker)")
+
+        self.items = []
+        for ex, (hits, mstate) in zip(extracted, matches):
+            twin = self.tool.store.find_passport(ex.passport_no) if ex.passport_no else None
+            # Auto-fill missing contact info from high-confidence candidate sheet match
+            fmap = hits[0].field_map() if (hits and mstate == "match") else {}
+            note_parts = []
+            if ex.application_no:
+                note_parts.append(f"App No: {ex.application_no}")
+            if ex.duration_of_stay:
+                note_parts.append(f"Stay: {ex.duration_of_stay}d")
+            if ex.requester:
+                note_parts.append(f"Requester: {ex.requester}")
+            fields = {
+                "name": ex.full_name or fmap.get("name", ""),
+                "passport_no": ex.passport_no or fmap.get("passport_no", ""),
+                "nationality": ex.nationality or fmap.get("nationality", ""),
+                "visa_no": ex.visa_no,
+                "visa_type": ex.visa_type,
+                "visa_issue": ex.visa_issue,
+                "visa_days": str(ex.entry_validity or ""),
+                "visa_deadline": ex.visa_deadline,
+                "phone": ex.mobile or fmap.get("phone", ""),
+                "email": ex.email or fmap.get("email", ""),
+                "position": fmap.get("position", ""),
+                "group": fmap.get("group", ""),
+                "notes": " | ".join(note_parts),
+            }
+            # Default selection: if candidate sheet is active, check confirmed matches; otherwise check all visas
+            default_use = bool(ex.is_visa and (mstate == "match" if (sheet_path and not sheet_err) else True))
+            self.items.append(VisaImportItem(
+                page=ex.page, extracted=ex, selected=default_use, candidate_hits=hits,
+                match_state=mstate, selected_hit_idx=0, existing_id=twin.id if twin else "", fields=fields,
+            ))
+
+        visas_found = sum(1 for it in self.items if it.extracted.is_visa)
+        if not visas_found and self.items:
+            self.only_visas.set(False)
+        self.status.configure(
+            text=f"{len(self.items)} page(s) read · {visas_found} visa(s) detected. Review and check the ones to import."
+            + (f"  ({err})" if err else "")
+        )
+        self._rebuild_table()
+        all_ids = self.table.all_ids()
+        if all_ids:
+            self.table.tree.selection_set(all_ids[0])
+            self._row_selected([all_ids[0]])
+
+    # ------------------------------------------------------------------ table & selection
+    def _visible_items(self) -> list[VisaImportItem]:
+        if self.only_visas.get():
+            return [it for it in self.items if it.extracted.is_visa]
+        return list(self.items)
+
+    def _item_by_page(self, page: int) -> VisaImportItem | None:
+        return next((it for it in self.items if it.page == page), None)
+
+    @staticmethod
+    def _match_text(it: VisaImportItem) -> str:
+        if it.match_state == "nosheet":
+            return "— No sheet"
+        hit = it.current_hit
+        if hit is None:
+            return "✗ Not in candidate list"
+        cname = hit.candidate_name or (hit.fields[0][1] if hit.fields else "?")
+        if it.match_state == "match":
+            tag = "passport" if hit.matched_by == "passport" else f"{hit.score:.0%}"
+            return f"✔ {tag}: {cname}"
+        return f"⚠ Possible ({hit.score:.0%}): {cname}"
+
+    def _row_dict(self, it: VisaImportItem) -> dict:
+        f = it.fields
+        return {
+            "use": "☑" if it.selected else "☐",
+            "page": f"p.{it.page + 1}",
+            "name": f.get("name") or "(no name)",
+            "passport": f.get("passport_no", ""),
+            "issued": f.get("visa_issue", ""),
+            "days": f.get("visa_days", ""),
+            "candidate": self._match_text(it),
+            "tracker": "Update" if it.existing_id else "New",
+        }
+
+    def _rebuild_table(self) -> None:
+        keep = list(self.table.selection())
+        self.table.clear()
+        for it in self._visible_items():
+            self.table.add(self._row_dict(it), iid=str(it.page), tags=(it.match_state,))
+        keep = [i for i in keep if self.table.tree.exists(i)]
+        if keep:
+            self.table.tree.selection_set(keep)
+        self._update_summary()
+
+    def _refresh_row(self, it: VisaImportItem) -> None:
+        iid = str(it.page)
+        if self.table.tree.exists(iid):
+            row = self._row_dict(it)
+            vals = [row.get(k, "") for k, *_ in self.table.columns]
+            self.table.tree.item(iid, values=vals, tags=(it.match_state,))
+            self.table._rows[iid] = (row, (it.match_state,))
+        self._update_summary()
+
+    def _update_summary(self) -> None:
+        vis = self._visible_items()
+        sel = sum(1 for it in self.items if it.selected)
+        matched = sum(1 for it in vis if it.match_state == "match")
+        possible = sum(1 for it in vis if it.match_state == "possible")
+        parts = [f"{sel} of {len(vis)} selected"]
+        if any(it.match_state != "nosheet" for it in vis):
+            parts.append(f"{matched} matched")
+            if possible:
+                parts.append(f"{possible} possible (check)")
+        self.summary_lbl.configure(text="  ·  ".join(parts))
+        self.import_btn.configure(state="normal" if sel > 0 else "disabled")
+
+    def toggle_selected(self) -> None:
+        for iid in self.table.selection():
+            it = self._item_by_page(int(iid))
+            if it is not None:
+                it.selected = not it.selected
+                self._refresh_row(it)
+
+    def select_matched(self) -> None:
+        for it in self._visible_items():
+            it.selected = it.match_state == "match"
+            self._refresh_row(it)
+
+    def select_all(self) -> None:
+        for it in self._visible_items():
+            it.selected = True
+            self._refresh_row(it)
+
+    def select_none(self) -> None:
+        for it in self.items:
+            it.selected = False
+            self._refresh_row(it)
+
+    # ------------------------------------------------------------------ right pane review & edit
+    def _row_selected(self, ids) -> None:
+        if not ids:
+            self.current_page = None
+            return
+        it = self._item_by_page(int(ids[0]))
+        if it is None:
+            return
+        self.current_page = it.page
+        self.preview.show(self.source, it.page, 0)
+        self._loading_editor = True
+        try:
+            for key, var in self.ed_vars.items():
+                var.set(it.fields.get(key, ""))
+        finally:
+            self._loading_editor = False
+        self._render_candidate_box(it)
+
+    def _field_edited(self, key: str) -> None:
+        if self._loading_editor or self.current_page is None:
+            return
+        it = self._item_by_page(self.current_page)
+        if it is None:
+            return
+        it.fields[key] = self.ed_vars[key].get().strip()
+        if key == "passport_no":
+            twin = self.tool.store.find_passport(it.fields[key]) if it.fields[key] else None
+            it.existing_id = twin.id if twin else ""
+        self._refresh_row(it)
+
+    def _render_candidate_box(self, it: VisaImportItem) -> None:
+        if it.match_state == "nosheet":
+            self.cand_status_lbl.configure(
+                text=self._sheet_error or "No candidate sheet configured. Set one in Settings > Visa Tracker (or DocPacker).",
+                style="Muted.TLabel",
+            )
+            self.cand_pick_cb.configure(values=[])
+            self.cand_pick_var.set("")
+            self.cand_detail_lbl.configure(text="")
+            return
+        if not it.candidate_hits:
+            self.cand_status_lbl.configure(
+                text=f"✗ Not found in candidate list (searched name “{it.extracted.full_name}” / passport “{it.extracted.passport_no}”).",
+                style="Warn.TLabel",
+            )
+            self.cand_pick_cb.configure(values=[])
+            self.cand_pick_var.set("")
+            self.cand_detail_lbl.configure(text="Leave unchecked to skip this person, or check 'Use' to import anyway.")
+            return
+        labels = [
+            f"{h.candidate_name or (h.fields[0][1] if h.fields else '?')}  ({h.score:.0%}, {h.matched_by}, row {h.row})"
+            for h in it.candidate_hits
+        ]
+        self.cand_pick_cb.configure(values=labels)
+        idx = max(0, min(it.selected_hit_idx, len(labels) - 1))
+        self.cand_pick_var.set(labels[idx])
+        hit = it.candidate_hits[idx]
+        style = "Ok.TLabel" if it.match_state == "match" else "Warn.TLabel"
+        prefix = "✔ Matched" if it.match_state == "match" else "⚠ Possible match (please check)"
+        self.cand_status_lbl.configure(text=f"{prefix} — row {hit.row} ({hit.score:.0%}, {hit.matched_by})", style=style)
+        preview_bits = [f"{k}: {v}" for k, v in hit.fields[:5]]
+        self.cand_detail_lbl.configure(text="  ·  ".join(preview_bits))
+
+    def _candidate_hit_picked(self) -> None:
+        if self.current_page is None:
+            return
+        it = self._item_by_page(self.current_page)
+        if it is None or not it.candidate_hits:
+            return
+        vals = list(self.cand_pick_cb.cget("values") or [])
+        cur = self.cand_pick_var.get()
+        if cur in vals:
+            it.selected_hit_idx = vals.index(cur)
+            self._render_candidate_box(it)
+            self._refresh_row(it)
+
+    def use_candidate_name(self) -> None:
+        if self.current_page is None:
+            return
+        it = self._item_by_page(self.current_page)
+        if it is None or it.current_hit is None:
+            return
+        cname = it.current_hit.candidate_name
+        if cname:
+            passport_name = it.extracted.full_name
+            if passport_name and passport_name.lower() != cname.lower() and "Passport name:" not in it.fields.get("notes", ""):
+                prefix = f"Passport name: {passport_name}"
+                it.fields["notes"] = (prefix + " | " + it.fields["notes"]).strip(" |")
+            self.ed_vars["name"].set(cname)
+
+    def fill_from_candidate(self) -> None:
+        if self.current_page is None:
+            return
+        it = self._item_by_page(self.current_page)
+        if it is None or it.current_hit is None:
+            return
+        fmap = it.current_hit.field_map()
+        for key in ("phone", "email", "position", "nationality"):
+            if fmap.get(key) and not self.ed_vars[key].get().strip():
+                self.ed_vars[key].set(fmap[key])
+        if fmap.get("group") and not it.fields.get("group"):
+            it.fields["group"] = fmap["group"]
+
+    def view_candidate_row(self) -> None:
+        if self.current_page is None:
+            return
+        it = self._item_by_page(self.current_page)
+        if it is None:
+            return
+        path, tab, name_col, header_row = self.tool.candidate_sheet_config()
+        show_candidate_info_popup(
+            self.win, self.app, it.fields.get("name", ""), path, tab, name_col, header_row,
+            passport_no=it.fields.get("passport_no", ""), dob=it.extracted.date_of_birth,
+            settings_tool_id=self.tool.id,
+        )
+
+    # ------------------------------------------------------------------ confirm import
+    def run(self) -> None:
+        chosen = [it for it in self.items if it.selected]
+        if not chosen:
+            info(self.win, "Check at least one visa to import.")
+            return
+        grp = self.batch_group.get().strip()
+        for it in chosen:
+            if not it.fields.get("name", "").strip():
+                error(self.win, f"Page {it.page + 1} has no name. Enter a name or uncheck it.")
+                return
+            if grp and not it.fields.get("group", "").strip():
+                it.fields["group"] = grp
+        attach = bool(self.attach_var.get())
+        self.close()
+        self.on_done(self.source, chosen, attach)
 
     def close(self) -> None:
         self.win.destroy()

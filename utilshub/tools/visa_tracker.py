@@ -2,7 +2,7 @@
 the stored visa page - and a log that proves every follow-up.
 
 Core logic lives in core/visa.py (rules, storage), core/visa_io.py (import / export / messages) and
-core/visa_files.py (finding and cutting the visa page); the windows are in ui/visa_dialogs.py.
+core/visa_files.py (finding, extracting and cutting visa pages); the windows are in ui/visa_dialogs.py.
 To add a field to a person: add it to `Person` (core/visa.py), then to PersonDialog and to COLUMNS / the Details tab here.
 """
 from __future__ import annotations
@@ -24,8 +24,8 @@ from ..core.sheets import write_csv, write_xlsx
 from ..core.system import open_path, reveal
 from ..ui.viewer import PageViewer
 from ..ui.visa_dialogs import (FollowupDialog, ImportDialog, KindDialog, PagePicker, PersonDialog, PickResult,
-                               TemplateDialog)
-from ..ui.widgets import DataTable, ask_text, confirm, copy_to_clipboard, error, info, style_text, tip
+                               TemplateDialog, VisaImportItem, VisaPdfImportDialog, show_candidate_info_popup)
+from ..ui.widgets import DataTable, Tooltip, ask_text, confirm, copy_to_clipboard, error, info, style_text, tip
 from .base import Command, Tool
 
 _log = __import__("logging").getLogger(__name__)
@@ -68,6 +68,14 @@ class VisaTracker(Tool):
             Opt("visa.warn_days", 30, "Yellow (soon) from", "int", min=0, max=365, section="Visa rules"),
             Opt("visa.ticket_warn_days", 21, "Warn when there is still no ticket and this many days are left", "int",
                 min=0, max=365, section="Visa rules"),
+            Opt("visa.info_sheet", "", "Candidates sheet (.xlsx / .csv, empty = use DocPacker's sheet)", "file",
+                section="Candidate info", filetypes=[("Spreadsheets", "*.xlsx *.xlsm *.csv"), ("All", "*.*")],
+                help="The 👤 Candidate info button and Visa PDF extractor look candidates up in this sheet."),
+            Opt("visa.info_tab", "", "Tab name (empty = first tab)", "str", section="Candidate info"),
+            Opt("visa.info_name_column", "", "Name column heading (empty = find it automatically)", "str",
+                section="Candidate info"),
+            Opt("visa.info_header_row", 1, "Row that holds the column headings", "int", min=1, max=50,
+                section="Candidate info"),
             Opt("visa.cadence", "60:14, 30:7, 14:3, 0:1", "How often to contact a person", "str", width=40,
                 section="Follow-up rhythm",
                 help="Pairs 'days left : contact every N days'. The default means: with 60+ days left every 14 days, "
@@ -82,8 +90,8 @@ class VisaTracker(Tool):
             Opt("visa.my_name", "", "Your name (written in the contact log and in messages)", "str", section="Messages"),
             Opt("visa.company", "", "Company name for messages", "str", section="Messages"),
             Opt("visa.date_format", "", "Date format", "choice", choices=visa_io.DATE_FORMATS, section="Display"),
-            Opt("visa.visa_types", ["Work visa", "Residence", "Visit", "Other"], "Visa types offered in the form", "list",
-                section="Lists"),
+            Opt("visa.visa_types", ["Work visa", "Multiple One Year", "Residence", "Visit", "Other"],
+                "Visa types offered in the form", "list", section="Lists"),
             Opt("visa.custom_fields", [], "Extra fields to keep for each person (e.g. Agency, Contract no.)", "list",
                 section="Lists", help="They appear in the person form, in {placeholders} and in the exports."),
             Opt("visa.find_ocr_pages", 40, "Read at most this many scanned pages to find the visa page", "int", min=0,
@@ -138,6 +146,26 @@ class VisaTracker(Tool):
 
     def my_name(self) -> str:
         return (self.get("my_name") or "").strip()
+
+    def candidate_sheet_config(self) -> tuple[str, str, str, int]:
+        """Return (path, tab, name_column, header_row), falling back to DocPacker's sheet when visa.info_sheet is empty."""
+        path = str(self.get("info_sheet") or "").strip()
+        if path:
+            return (
+                path,
+                str(self.get("info_tab") or ""),
+                str(self.get("info_name_column") or ""),
+                int(self.get("info_header_row") or 1),
+            )
+        dp_path = str(self.settings.get("docpacker.info_sheet", "") or "").strip()
+        if dp_path:
+            return (
+                dp_path,
+                str(self.settings.get("docpacker.info_tab", "") or ""),
+                str(self.settings.get("docpacker.info_name_column", "") or ""),
+                int(self.settings.get("docpacker.info_header_row", 1) or 1),
+            )
+        return ("", "", "", 1)
 
     def templates(self) -> list[dict]:
         raw = self.settings.get("visastate.templates")
@@ -257,7 +285,7 @@ class VisaTracker(Tool):
             log.exception("Visa tick failed")
         self.app.root.after(300_000, self._tick)
 
-    # ------------------------------------------------------------------ build
+    # ------------------------------------------------------------------ build (DocPacker-style grouped toolbar)
     def build(self, parent: ttk.Frame) -> None:
         st = self.ensure_store()
         if st is None:
@@ -268,18 +296,15 @@ class VisaTracker(Tool):
             ttk.Button(row, text="Try again", command=self._retry_store).pack(side="left")
             ttk.Button(row, text="Open settings", command=lambda: self.app.open_settings(self.id)).pack(side="left", padx=6)
             return
+
+        # -- header --------------------------------------------------------------------------------
         head = ttk.Frame(parent)
         head.pack(fill="x")
-        left = ttk.Frame(head)
-        left.pack(side="left", fill="x", expand=True)
-        ttk.Label(left, text="🛫  Visa Tracker", style="H2.TLabel").pack(anchor="w")
-        self.summary = ttk.Label(left, style="Muted.TLabel")
-        self.summary.pack(anchor="w")
-        ttk.Button(head, text="⋯ More", command=lambda: self._menu_button(more)).pack(side="right")
-        ttk.Button(head, text="Export ▾", command=lambda: self._menu_button(export)).pack(side="right", padx=6)
-        ttk.Button(head, text="Import…", command=self.import_file).pack(side="right")
-        ttk.Button(head, text="＋ Add person  (Ctrl+N)", style="Accent.TButton", command=self.add_person).pack(side="right", padx=6)
+        ttk.Label(head, text="🛫  Visa Tracker", style="H2.TLabel").pack(side="left")
+        self.summary = ttk.Label(head, style="Muted.TLabel")
+        self.summary.pack(side="left", padx=(12, 0))
 
+        # -- toolbar (actions, grouped like DocPacker) ---------------------------------------------
         export, more = tk.Menu(parent, tearoff=False), tk.Menu(parent, tearoff=False)
         for label, cmd in (("Excel / CSV list of everybody…", self.export_people),
                            ("Follow-up proof log (Excel)…", self.export_followups),
@@ -296,6 +321,30 @@ class VisaTracker(Tool):
                 more.add_command(label=label, command=cmd)
         self._menus = (export, more)
 
+        bar = ttk.Frame(parent)
+        bar.pack(fill="x", pady=(6, 0))
+        add_btn = ttk.Button(bar, text="＋ Add person", style="Accent.TButton", command=self.add_person)
+        add_btn.pack(side="left", padx=(0, 4))
+        Tooltip(add_btn, "Add a new person manually (Ctrl+N)")
+        for text, cmd, tp in (("📄 Import Visa PDF…", self.import_visa_pdf,
+                               "Extract multiple visas from a PDF, check against your candidate sheet, and review before importing"),
+                              ("📊 Import Sheet…", self.import_file,
+                               "Import people from an Excel or CSV spreadsheet")):
+            b = ttk.Button(bar, text=text, command=cmd)
+            b.pack(side="left", padx=(0, 4))
+            Tooltip(b, tp)
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8, pady=2)
+        for text, cmd, tp in (("👤 Candidate info", self.show_candidate_info,
+                               "Show the selected candidate's row from your candidate sheet"),
+                              ("📝 Log contact…", self.log_contact,
+                               "Log a follow-up contact for the selected person(s) (Ctrl+L)")):
+            b = ttk.Button(bar, text=text, command=cmd)
+            b.pack(side="left", padx=(0, 4))
+            Tooltip(b, tp)
+        ttk.Button(bar, text="⋯ More", command=lambda: self._menu_button(more)).pack(side="right")
+        ttk.Button(bar, text="Export ▾", command=lambda: self._menu_button(export)).pack(side="right", padx=6)
+
+        # -- filter chips & group picker -----------------------------------------------------------
         self.chip_bar = ttk.Frame(parent)
         self.chip_bar.pack(fill="x", pady=(8, 2))
         self.chips: dict[str, ttk.Button] = {}
@@ -308,6 +357,7 @@ class VisaTracker(Tool):
         self.group_box.pack(side="right")
         self.group_box.bind("<<ComboboxSelected>>", lambda e: self.refresh())
 
+        # -- main split: list (left) | detail panel (right) ----------------------------------------
         paned = ttk.PanedWindow(parent, orient="horizontal")
         paned.pack(fill="both", expand=True, pady=(4, 0))
         lf = ttk.Frame(paned)
@@ -320,6 +370,7 @@ class VisaTracker(Tool):
         self.table.tree.bind("<Delete>", lambda e: self.delete_selected())
         self.table.menu.add_separator()
         self.table.menu.add_command(label="Log contact…", command=self.log_contact)
+        self.table.menu.add_command(label="👤 Candidate info…", command=self.show_candidate_info)
         self.table.menu.add_command(label="Edit…", command=self.edit_person)
         self.table.tree.bind("<Button-3>", self._row_menu)
         self.table.tree.bind("<Button-2>", self._row_menu)
@@ -343,6 +394,23 @@ class VisaTracker(Tool):
                 menu.grab_release()
             except Exception:
                 _log.debug("ignored error", exc_info=True)
+
+    # ------------------------------------------------------------------ candidate info pop-up
+    def show_candidate_info(self) -> None:
+        """One click: a pop-up with the selected candidate's row from the sheet chosen in settings (same as DocPacker)."""
+        p = (self._people() or [None])[0]
+        path, tab, name_col, header_row = self.candidate_sheet_config()
+        if not path:
+            if confirm(self.frame, "No candidates sheet is chosen yet.\n\nOpen the settings to choose one?"):
+                self.app.open_settings(self.id)
+            return
+        if p is None:
+            info(self.frame, "Select a person first to look up their candidate information.")
+            return
+        show_candidate_info_popup(
+            self.frame, self.app, p.name, path, tab, name_col, header_row,
+            passport_no=p.passport_no, settings_tool_id=self.id,
+        )
 
     # ------------------------------------------------------------------ table
     def _apply_columns(self) -> None:
@@ -489,6 +557,7 @@ class VisaTracker(Tool):
             window = "fixed date" if p.visa_deadline else f"issued {self.fmt(V.to_date(p.visa_issue))} + {p.visa_days or pol.default_days} days"
             ttk.Label(d, text=f"Last entry: {self.fmt(dl)}  ({window})", style="Muted.TLabel", wraplength=400).pack(anchor="w")
 
+        # Grouped action rows (DocPacker-style separators & tooltips)
         bar = ttk.Frame(d)
         bar.pack(fill="x", pady=(8, 2))
         for text, cmd, tp in (("📞 Spoke", lambda: self.quick_log("call", "reached"), "Log a call where you reached the person"),
@@ -504,6 +573,8 @@ class VisaTracker(Tool):
             ttk.Button(bar2, text="⏰ Snooze", style="Tiny.TButton", command=lambda: self.snooze_menu(bar2)).pack(side="left", padx=1)
         else:
             ttk.Button(bar2, text="↩ Reopen", style="Tiny.TButton", command=self.reopen).pack(side="left", padx=1)
+        ttk.Separator(bar2, orient="vertical").pack(side="left", fill="y", padx=6, pady=2)
+        ttk.Button(bar2, text="👤 Candidate info", style="Tiny.TButton", command=self.show_candidate_info).pack(side="left", padx=1)
         ttk.Button(bar2, text="✏ Edit", style="Tiny.TButton", command=self.edit_person).pack(side="left", padx=1)
 
         if many == 1:
@@ -528,28 +599,51 @@ class VisaTracker(Tool):
         self._render_detail(force=True)
 
     def _tab_details(self, body: ttk.Frame, p: V.Person) -> None:
+        """DocPacker-style grouped LabelFrame sections with a 2-column label-above-value grid."""
         pol = self.policy()
-        pairs = [("Passport", p.passport_no), ("Passport expiry", self.fmt(V.to_date(p.passport_expiry))),
-                 ("Phone", p.phone), ("E-mail", p.email), ("Visa no.", p.visa_no), ("Visa type", p.visa_type),
-                 ("Visa issued", self.fmt(V.to_date(p.visa_issue))),
-                 ("Ticket", visa_io.label_of(V.TICKET_STATES, p.ticket_status)),
-                 ("Flight", " ".join(x for x in (self.fmt(V.to_date(p.flight_date)), p.flight_no) if x)),
-                 ("Next reminder", self.fmt(V.next_due(p, self.today(), pol))), ("Added", self.fmt(V.to_date(p.added_on)))]
-        pairs += [(k, v) for k, v in p.extra.items() if v]
-        pairs.append(("Notes", p.notes))
-        grid = ttk.Frame(body)
-        grid.pack(fill="x")
-        r = 0
-        for label, value in pairs:
-            if not value:
-                continue
-            ttk.Label(grid, text=label, style="Muted.TLabel").grid(row=r, column=0, sticky="nw", padx=(0, 12), pady=1)
-            ttk.Label(grid, text=value, wraplength=300, justify="left").grid(row=r, column=1, sticky="w", pady=1)
-            r += 1
+
+        def draw_group(title: str, pairs: list[tuple[str, str]]) -> None:
+            items = [(k, v) for k, v in pairs if v]
+            if not items:
+                return
+            box = ttk.LabelFrame(body, text=title, padding=(8, 4, 8, 6))
+            box.pack(fill="x", pady=(0, 6))
+            box.columnconfigure(0, weight=1, uniform=f"d_{title}")
+            box.columnconfigure(1, weight=1, uniform=f"d_{title}")
+            for n, (label, value) in enumerate(items):
+                r, c = divmod(n, 2)
+                cell = ttk.Frame(box)
+                cell.grid(row=r, column=c, sticky="nw", padx=(0, 10), pady=(0, 3))
+                ttk.Label(cell, text=label, style="Muted.TLabel").pack(anchor="w")
+                ttk.Label(cell, text=value, wraplength=185, justify="left").pack(anchor="w")
+
+        draw_group("Candidate", [
+            ("Passport", p.passport_no),
+            ("Passport expiry", self.fmt(V.to_date(p.passport_expiry))),
+            ("Phone", p.phone),
+            ("E-mail", p.email),
+            ("Position", p.position),
+            ("Nationality", p.nationality),
+        ])
+        draw_group("Visa & Travel", [
+            ("Visa no.", p.visa_no),
+            ("Visa type", p.visa_type),
+            ("Visa issued", self.fmt(V.to_date(p.visa_issue))),
+            ("Ticket", visa_io.label_of(V.TICKET_STATES, p.ticket_status)),
+            ("Flight", " ".join(x for x in (self.fmt(V.to_date(p.flight_date)), p.flight_no) if x)),
+            ("Next reminder", self.fmt(V.next_due(p, self.today(), pol))),
+            ("Added", self.fmt(V.to_date(p.added_on))),
+        ])
+        extra_pairs = [(k, v) for k, v in p.extra.items() if v]
+        if p.notes:
+            extra_pairs.append(("Notes", p.notes))
+        draw_group("Notes & Extra", extra_pairs)
+
         tools = ttk.Frame(body)
-        tools.pack(fill="x", pady=8)
+        tools.pack(fill="x", pady=4)
         if p.phone:
-            ttk.Button(tools, text="Copy phone", style="Tiny.TButton", command=lambda: copy_to_clipboard(self.frame, p.phone)).pack(side="left", padx=1)
+            ttk.Button(tools, text="Copy phone", style="Tiny.TButton",
+                       command=lambda: copy_to_clipboard(self.frame, p.phone)).pack(side="left", padx=1)
         if p.passport_no:
             ttk.Button(tools, text="Copy passport no.", style="Tiny.TButton",
                        command=lambda: copy_to_clipboard(self.frame, p.passport_no)).pack(side="left", padx=1)
@@ -889,6 +983,100 @@ class VisaTracker(Tool):
         if d is not None and confirm(self.frame, "Remove this file from the person?\n\nThe file stays in the data folder."):
             self.store.remove_doc(self.shown_id, str(d.get("id")))
 
+    # ------------------------------------------------------------------ multi-visa PDF semi-auto import
+    def import_visa_pdf(self) -> None:
+        if not self.ensure_store():
+            return
+        path = filedialog.askopenfilename(
+            title="Choose a Visa PDF (single or multiple visas)",
+            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+        )
+        if path:
+            self._import_visa_pdf_path(path)
+
+    def _import_visa_pdf_path(self, path: str) -> VisaPdfImportDialog:
+        return VisaPdfImportDialog(self, path, self._do_visa_pdf_import)
+
+    def _do_visa_pdf_import(self, source: str, items: list[VisaImportItem], attach_pages: bool) -> None:
+        people: list[V.Person] = []
+        page_by_key: list[tuple[str, str, int]] = []
+        for it in items:
+            f = it.fields
+            days_raw = (f.get("visa_days") or "").strip()
+            try:
+                vdays = max(0, int(days_raw)) if days_raw else 0
+            except ValueError:
+                vdays = 0
+            issue_d = V.parse_date_input(f.get("visa_issue", ""), self.today(), self.date_order())
+            dl_d = V.parse_date_input(f.get("visa_deadline", ""), self.today(), self.date_order())
+            p = V.Person(
+                name=f.get("name", "").strip(),
+                passport_no=f.get("passport_no", "").strip(),
+                nationality=f.get("nationality", "").strip(),
+                phone=f.get("phone", "").strip(),
+                email=f.get("email", "").strip(),
+                position=f.get("position", "").strip(),
+                group=f.get("group", "").strip(),
+                visa_no=f.get("visa_no", "").strip(),
+                visa_type=f.get("visa_type", "").strip(),
+                visa_issue=V.iso(issue_d),
+                visa_days=vdays,
+                visa_deadline=V.iso(dl_d),
+                notes=f.get("notes", "").strip(),
+            )
+            people.append(p)
+            page_by_key.append((p.passport_no, p.name, it.page))
+        try:
+            added, updated, skipped = self.store.merge_people(people, mode="update", label="Import visas from PDF")
+        except V.VisaError as exc:
+            error(self.frame, str(exc))
+            return
+
+        if not attach_pages:
+            msg = f"Imported from PDF: {added} added, {updated} updated."
+            self.log(msg, "ok")
+            info(self.frame, msg + ("\n\nCtrl+Z undoes the import." if added or updated else ""))
+            return
+
+        # Resolve stored person IDs for attaching each individual visa page
+        attach_jobs: list[tuple[str, int, Path]] = []
+        for pp, nm, pg in page_by_key:
+            target = self.store.find_passport(pp) if pp else None
+            if target is None:
+                target = next((q for q in self.store.all() if q.name.strip().lower() == nm.strip().lower()), None)
+            if target is not None:
+                attach_jobs.append((target.id, pg, self.store.new_doc_path(target, "visa")))
+
+        cmd = str(self.settings.get("ocr.libreoffice_cmd", "") or "")
+        src_name = Path(source).name
+
+        def work(job):
+            done_list: list[tuple[str, int, str]] = []
+            errors_list: list[str] = []
+            for pid, pg, dest in attach_jobs:
+                try:
+                    out_path = visa_files.extract_pages(source, [pg], dest, {}, cmd)
+                    done_list.append((pid, pg, out_path))
+                except Exception as exc:
+                    errors_list.append(f"p.{pg + 1}: {exc}")
+            return done_list, errors_list
+
+        def done(result):
+            done_list, errors_list = result
+            for pid, pg, out_path in done_list:
+                try:
+                    self.store.add_doc(pid, "visa", out_path, src_name, [pg])
+                except V.VisaError as exc:
+                    errors_list.append(str(exc))
+            msg = f"Imported from PDF: {added} added, {updated} updated, {len(done_list)} visa page(s) attached."
+            if errors_list:
+                msg += "\n\nSome pages could not be attached:\n" + "\n".join(errors_list[:10])
+            self.log(msg, "ok" if not errors_list else "warn")
+            info(self.frame, msg + ("\n\nCtrl+Z undoes the import." if added or updated else ""))
+
+        self.app.jobs.submit(work, "Attaching extracted visa pages", tool=self.id, on_done=done,
+                             on_error=lambda m: error(self.frame, m), serial_key="visa.cut")
+
     # ------------------------------------------------------------------ files dropped / chosen
     def accept_files(self, paths: list[str]) -> None:
         if not self.ensure_store() or not paths:
@@ -899,7 +1087,7 @@ class VisaTracker(Tool):
             return
         p = (self._people() or [None])[0]
         if p is None:
-            info(self.frame, "Select a person first, then add the file again.\n\n(Spreadsheets are imported as a list of people.)")
+            info(self.frame, "Select a person first, then add the file again.\n\n(Spreadsheets are imported as a list of people; use 'Import Visa PDF…' for multi-visa PDFs.)")
             return
         KindDialog(self, Path(path).name, lambda kind: self._attach_path(p, kind, path))
 
@@ -1020,6 +1208,7 @@ class VisaTracker(Tool):
         m.add_command(label="💬 WhatsApp…", command=self.send_whatsapp)
         m.add_command(label="✉ E-mail…", command=self.send_email)
         m.add_separator()
+        m.add_command(label="👤 Candidate info…", command=self.show_candidate_info)
         m.add_command(label="⏰ Snooze…", command=lambda: self.snooze_menu(self.table.tree))
         m.add_command(label="🎫 Ticket sent", command=lambda: self.set_ticket("sent"))
         m.add_command(label="🎫 Ticket booked", command=lambda: self.set_ticket("booked"))
@@ -1047,7 +1236,9 @@ class VisaTracker(Tool):
     def commands(self) -> list[Command]:
         t = self.title
         out = [Command("visa.add", "Visa Tracker: add a person", self.add_person, t, "new candidate", "Ctrl+N"),
+               Command("visa.import_pdf", "Visa Tracker: import visas from a PDF", self.import_visa_pdf, t, "extract evisa pdf"),
                Command("visa.import", "Visa Tracker: import people from Excel / CSV", self.import_file, t, "spreadsheet"),
+               Command("visa.candidate_info", "Visa Tracker: show candidate info from sheet", self.show_candidate_info, t, "lookup sheet"),
                Command("visa.todo", "Visa Tracker: show who to contact today", lambda: (self.app.show_tool(self.id), self.set_filter("todo")), t, "follow up"),
                Command("visa.critical", "Visa Tracker: show critical visas", lambda: (self.app.show_tool(self.id), self.set_filter("d7")), t, "urgent expiring"),
                Command("visa.export", "Visa Tracker: export the list", self.export_people, t, "excel csv", "Ctrl+E"),

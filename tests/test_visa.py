@@ -372,3 +372,101 @@ def test_extract_pages_cuts_one_page(tmp_path):
         VF.extract_pages(src, [], tmp_path / "none.pdf")
     with pytest.raises(VF.VisaFileError):
         VF.extract_pages(tmp_path / "missing.pdf", [0], tmp_path / "x.pdf")
+
+
+# --------------------------------------------------------------------------- Iraq e-Visa extractor & candidate matching
+IRAQ_EVISA_SAME_LINE = """REPUBLIC OF IRAQ - MINISTRY OF INTERIOR - DIRECTORATE OF NATIONALITY AND PASSPORTS AND RESIDENCE
+معلومات الزائر / زانیاری سەردانکەران / Visa Information
+RAJESH KUMAR SHARMA  الاســـــم الكامل / ناوى ته‌واو / Full Name:
+Indian  هندي  الجنسيـــــــــة / ڕه‌گه‌زنامه‌ / Nationality:
+1988-05-28  تاريخ الميلاد / ڕۆژی له‌ دایک بوون / Date of Birth:
+V7790175  رقم الجواز / ژماره‌ی پاسپۆرت / Passport No.:
+عادي  نوع الجواز / جۆری پاسپۆرت / Passport Type:
+معلومات سمة الدخول الالكترونية / Information of Electronic Visa
+1938660  رقم سمة الدخول / ژماره‌ی ڤیزه‌ی چوونه‌ ژووره‌وه‌ / Entry Visa No.:
+202601-0001265830  رقـــــم الطلــــب / ژماره‌ی داواكردن / Application No.:
+Multiple One Year  متعددة سنة واحدة  نـــــــــــوع الســــــمة / جۆری ڤیزه‌ / Visa Type:
+Directorate of Residence Affairs  مديرية شؤون الإقامة  جـــــهة منــــح السمـــــة / شوێنی ده‌رچوون / Issuing Authority:
+2026-11-18  تاريخ إصدار سمة الدخول / به‌رواری ده‌رچوونی ڤیزه‌ / Date of Issue:
+90  صــــــلاحيــــــة الدخـــــول / مۆڵه‌ت بۆ ده‌ستگه‌یشتن / Entry Validity:
+365  مـــــــــــدة الإقـــــــامـــــــة / ماوه‌ی مانه‌وه‌ / Duration of stay:
+معلومات جهة الطلب / Requester Information
+العتبة العباسية المقدسة/العتبة العباسية المقدسة  جهة الطلب / لایه‌نی داواکار / Requester:
+كربلاء  العنـــــــوان / نـــــــاونیشان / Address:
+البريد الإلكتروني / ئیمه‌یل / Email:
+رقم الهاتف / ژماره‌ی مۆبایل / Mobile:"""
+
+IRAQ_EVISA_SPLIT_LINES = """REPUBLIC OF IRAQ - MINISTRY OF INTERIOR
+Full Name:
+AHMED HASSAN AL-TAEE
+Nationality:
+Iraqi  عراقي
+Date of Birth:
+1992-03-14
+Passport No.:
+A9988776
+Entry Visa No.:
+2044551
+Application No.:
+202602-0009988776
+Visa Type:
+Single Entry
+Date of Issue:
+2026-11-20
+Entry Validity:
+60
+Duration of stay:
+30"""
+
+
+def test_extract_iraq_evisa_same_line_and_split_lines():
+    v = VF.extract_visa_page_info(IRAQ_EVISA_SAME_LINE, page=0)
+    assert v.is_visa is True
+    assert v.full_name == "RAJESH KUMAR SHARMA"
+    assert v.nationality == "Indian"
+    assert v.date_of_birth == "1988-05-28"
+    assert v.passport_no == "V7790175"
+    assert v.visa_no == "1938660"
+    assert v.application_no == "202601-0001265830"
+    assert v.visa_type == "Multiple One Year"
+    assert v.issuing_authority == "Directorate of Residence Affairs"
+    assert v.visa_issue == "2026-11-18"
+    assert v.entry_validity == 90
+    assert v.duration_of_stay == 365
+    assert "العتبة العباسية" in v.requester
+    assert v.address == "كربلاء"
+    # suggest_dates ignores Date of Birth and reads issue + entry_validity
+    sd = VF.suggest_dates(IRAQ_EVISA_SAME_LINE, "visa", TODAY)
+    assert sd["issue"] == D(2026, 11, 18) and sd["entry_validity"] == 90 and D(1988, 5, 28) not in sd["all"]
+
+    v2 = VF.extract_visa_page_info(IRAQ_EVISA_SPLIT_LINES, page=1)
+    assert v2.is_visa is True and v2.full_name == "AHMED HASSAN AL-TAEE" and v2.passport_no == "A9988776"
+    assert v2.visa_issue == "2026-11-20" and v2.entry_validity == 60 and v2.duration_of_stay == 30
+
+
+def test_candidate_matching_for_passport_and_different_names(tmp_path):
+    from utilshub.core.candidate_lookup import find_candidate, match_candidate, match_status
+    sheet = tmp_path / "candidates.csv"
+    sheet.write_text(
+        "Candidate Name,Passport No,Date of Birth,Phone,Email,Position\n"
+        "Rajesh Sharma,V7790175,1988-05-28,+91 98765 43210,rajesh@example.com,Technician\n"
+        "Ali Al-Taee,,1992-03-14,+964 770 111 2222,ali@example.com,Supervisor\n"
+        "Completely Different Name,P5554443,1990-01-01,+964 780 999 8888,diff@example.com,Operator\n",
+        encoding="utf-8",
+    )
+    # 1. Exact passport match even when visa name differs completely from candidate list name
+    h1 = match_candidate(str(sheet), name="MOHAMMED KAREEM JASIM", passport_no="P5554443")
+    assert h1 and h1[0].matched_by == "passport" and h1[0].score == 1.0 and match_status(h1) == "match"
+    assert h1[0].field_map()["phone"] == "+964 780 999 8888"
+
+    # 2. Passport full name with middle name matches shorter candidate list name
+    h2 = match_candidate(str(sheet), name="RAJESH KUMAR SHARMA", passport_no="")
+    assert h2 and match_status(h2) == "match" and h2[0].candidate_name == "Rajesh Sharma"
+
+    # 3. Non-existent candidate returns empty
+    h3 = match_candidate(str(sheet), name="UNKNOWN VISITOR NAME", passport_no="Z0000001")
+    assert h3 == [] and match_status(h3) == "none"
+
+    # 4. Backwards-compatible find_candidate still works
+    h4 = find_candidate(str(sheet), "Rajesh Sharma")
+    assert h4 and h4[0].score >= 0.95

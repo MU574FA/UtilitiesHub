@@ -358,6 +358,87 @@ check("changing the data folder opens that folder (empty here)", tool.store is n
 app.settings.set("visa.data_folder", str(tmp / "data")); faketk.flush()
 check("...and switching back restores the data", len(tool.store.all()) == n)
 
+print("== candidate info & multi-visa PDF semi-auto review")
+st = tool.store
+cand_csv = tmp / "candidates.csv"
+cand_csv.write_text(
+    "Candidate Name,Passport No,Date of Birth,Phone,Email,Position\n"
+    "Rajesh Sharma,V7790175,1988-05-28,+91 98765 43210,rajesh@example.com,Technician\n"
+    "Hassan Kareem,,1991-07-10,+964 771 222 3333,hassan@example.com,Engineer\n",
+    encoding="utf-8",
+)
+# Fallback to DocPacker sheet when visa.info_sheet is empty
+app.settings.set("docpacker.info_sheet", str(cand_csv))
+check("falls back to DocPacker candidate sheet when visa.info_sheet is empty",
+      tool.candidate_sheet_config()[0] == str(cand_csv))
+app.settings.set("visa.info_sheet", str(cand_csv))
+tool.table.tree.selection_set(ali.id); tool._selected([ali.id])
+popups["info"].clear(); tool.show_candidate_info()
+check("candidate info lookup reports when not in sheet", any("No row" in m for m in popups["info"]))
+
+evisa_p1 = (
+    "REPUBLIC OF IRAQ - MINISTRY OF INTERIOR - DIRECTORATE OF NATIONALITY AND PASSPORTS AND RESIDENCE\n"
+    "معلومات الزائر / Visa Information\n"
+    "RAJESH KUMAR SHARMA  الاســـــم الكامل / Full Name:\n"
+    "Indian  هندي  الجنسيـــــــــة / Nationality:\n"
+    "1988-05-28  تاريخ الميلاد / Date of Birth:\n"
+    "V7790175  رقم الجواز / Passport No.:\n"
+    "1938660  رقم سمة الدخول / Entry Visa No.:\n"
+    "202601-0001265830  رقـــــم الطلــــب / Application No.:\n"
+    "Multiple One Year  متعددة سنة واحدة  نـــــــــــوع الســــــمة / Visa Type:\n"
+    "2026-11-18  تاريخ إصدار سمة الدخول / Date of Issue:\n"
+    "90  صــــــلاحيــــــة الدخـــــول / Entry Validity:\n"
+    "365  مـــــــــــدة الإقـــــــامـــــــة / Duration of stay:\n"
+)
+evisa_p2 = (
+    "REPUBLIC OF IRAQ - MINISTRY OF INTERIOR\n"
+    "HASSAN KAREEM AL-MUSAWI  Full Name:\n"
+    "Iraqi  Nationality:\n"
+    "1991-07-10  Date of Birth:\n"
+    "A4455667  Passport No.:\n"
+    "1938661  Entry Visa No.:\n"
+    "Single Entry  Visa Type:\n"
+    "2026-11-19  Date of Issue:\n"
+    "60  Entry Validity:\n"
+)
+evisa_p3 = (
+    "REPUBLIC OF IRAQ - MINISTRY OF INTERIOR\n"
+    "SOMEBODY NOT IN LIST  Full Name:\n"
+    "Pakistani  Nationality:\n"
+    "Z9998887  Passport No.:\n"
+    "1938662  Entry Visa No.:\n"
+    "2026-11-19  Date of Issue:\n"
+    "90  Entry Validity:\n"
+)
+multi_pdf = tmp / "batch_visas.pdf"; multi_pdf.write_bytes(b"%PDF")
+visa_files.read_page_texts = lambda path, cfg, pages: ([evisa_p1, evisa_p2, evisa_p3], "")
+before_pdf = len(st.all())
+cuts.clear()
+pdf_dlg = tool._import_visa_pdf_path(str(multi_pdf))
+check("multi-visa PDF extracted all 3 pages", len(pdf_dlg.items) == 3 and all(it.extracted.is_visa for it in pdf_dlg.items))
+check("candidate check matched p1 (passport) & p2 (partial name) and flagged p3 as not found",
+      pdf_dlg.items[0].match_state == "match" and pdf_dlg.items[1].match_state == "match" and pdf_dlg.items[2].match_state == "none",
+      [it.match_state for it in pdf_dlg.items])
+check("only matched candidates are checked by default for semi-auto review",
+      [it.selected for it in pdf_dlg.items] == [True, True, False])
+check("matched candidate contact info auto-filled from sheet",
+      pdf_dlg.items[0].fields["phone"] == "+91 98765 43210" and pdf_dlg.items[0].fields["position"] == "Technician")
+# User reviews page 2 and chooses to use candidate list name
+pdf_dlg.table.tree.selection_set("1"); pdf_dlg._row_selected(["1"])
+pdf_dlg.use_candidate_name()
+check("use candidate name updates review name and keeps passport name in notes",
+      pdf_dlg.items[1].fields["name"] == "Hassan Kareem" and "HASSAN KAREEM AL-MUSAWI" in pdf_dlg.items[1].fields["notes"])
+pdf_dlg.batch_group.set("Nov Batch")
+popups["info"].clear()
+pdf_dlg.run()
+check("only the 2 reviewed/checked visas were imported (p3 skipped)",
+      len(st.all()) == before_pdf + 2 and st.find_passport("V7790175") is not None and st.find_passport("Z9998887") is None)
+raj = st.find_passport("V7790175")
+check("imported Iraq e-Visa keeps issue date, 90d validity, visa no, and attaches its single PDF page",
+      raj.visa_issue == "2026-11-18" and raj.visa_days == 90 and raj.visa_no == "1938660" and raj.group == "Nov Batch" and raj.doc("visa") is not None)
+check("palette includes new import_pdf and candidate_info commands",
+      {"visa.import_pdf", "visa.candidate_info"} <= {c.id for c in tool.commands()})
+
 print("== time moves on")
 tool.today = lambda: TODAY + dt.timedelta(days=10); tool._tick(); tool.refresh()
 check("ten days later the lists are recomputed", rows().get("Sara Noor", {}).get("days") == -7 or "Sara Noor" not in rows())
