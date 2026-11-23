@@ -304,7 +304,7 @@ check("stats are prefixed with the tab", all(k.startswith(("Duplicates: ", "Scan
 check("members() lets the shell reach automation of every tab", happ.iter_tools() is not None and ch.member("scan_cleaner") in happ.iter_tools())
 
 # a tab that cannot load must not break the rest
-check("extract hub degrades gracefully when a tab's library is missing", len(ExtractHub.member_classes()) in (2, 3))
+check("extract hub degrades gracefully when a tab's library is missing", len(ExtractHub.member_classes()) in (3, 4))
 
 # ---- Automation hub: Autopilot folder triggers run a saved workflow
 ah = happ.tools["automation"]
