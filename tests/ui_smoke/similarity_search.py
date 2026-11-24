@@ -40,7 +40,7 @@ hub = ExtractHub(app)
 app.tools["extract"] = hub
 app.aliases.update({m.id: hub.id for m in hub.members() if m is not hub})
 
-check("ExtractHub includes similarity_search as 4th tab", [m.id for m in hub.members()] == ["screenshot", "ocr_match", "passport", "similarity_search"])
+check("ExtractHub includes similarity_search as 4th tab", [m.id for m in hub.members()] == ["screenshot", "ocr_match", "passport", "similarity_search", "badge_extractor"])
 
 hub.ensure_built(app.root)
 hub.on_show()
