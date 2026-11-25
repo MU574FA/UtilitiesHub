@@ -44,6 +44,8 @@ class PageViewer(ttk.Frame):
         self._token = 0
         self._after = None
         self._error = ""
+        self.section_headers: dict[int, tuple[str, str]] = {}
+        self.excluded_pages: set[int] = set()
         if show_toolbar:
             self._toolbar()
         body = ttk.Frame(self)
@@ -168,6 +170,15 @@ class PageViewer(ttk.Frame):
             self.after_cancel(self._after)
         self._after = self.after(120, self._relayout)
 
+    def set_section_headers(self, headers: dict[int, tuple[str, str]] | None) -> None:
+        self.section_headers = dict(headers or {})
+        if self.pages:
+            self._relayout()
+
+    def set_excluded_pages(self, excluded: set[int] | None) -> None:
+        self.excluded_pages = set(excluded or ())
+        self._draw_excluded_overlays()
+
     def _relayout(self) -> None:
         self._after = None
         if not self.pages:
@@ -176,11 +187,43 @@ class PageViewer(ttk.Frame):
         cw = max(self.canvas.winfo_width(), width + 24)
         self._layout, y = [], self.GAP
         self.canvas.delete("page")
+        p = self.app.theme.p
+        batch_gap, banner_h = 26, 26
         for i in range(self.pages):
             w, h = self._page_dims(i, width)
             x = (cw - w) // 2
+            if i in self.section_headers:
+                if i > 0:
+                    y += batch_gap
+                    div_y = y - batch_gap // 2
+                    self.canvas.create_line(
+                        max(12, x - 6), div_y, min(cw - 12, x + w + 6), div_y,
+                        fill=p["line"], dash=(4, 3), tags=("page", "banner"),
+                    )
+                title, badge_txt = self.section_headers[i]
+                self.canvas.create_rectangle(
+                    x, y, x + w, y + banner_h,
+                    fill=p.get("accent_soft", p["surface"]), outline=self.app.theme.accent, width=1,
+                    tags=("page", "banner"),
+                )
+                self.canvas.create_rectangle(
+                    x, y, x + 4, y + banner_h,
+                    fill=self.app.theme.accent, outline="", tags=("page", "banner"),
+                )
+                max_chars = max(16, int((w - 90) / 7))
+                short_title = title if len(title) <= max_chars else title[:max_chars - 1] + "…"
+                self.canvas.create_text(
+                    x + 12, y + banner_h // 2, anchor="w", text=short_title,
+                    fill=p["fg"], font=("TkDefaultFont", 9, "bold"), tags=("page", "banner"),
+                )
+                if badge_txt:
+                    self.canvas.create_text(
+                        x + w - 10, y + banner_h // 2, anchor="e", text=badge_txt,
+                        fill=self.app.theme.accent, font=("TkDefaultFont", 8, "bold"), tags=("page", "banner"),
+                    )
+                y += banner_h + 6
             self._layout.append((y, h, w, x))
-            self.canvas.create_rectangle(x, y, x + w, y + h, fill="#ffffff", outline=self.app.theme.p["line"],
+            self.canvas.create_rectangle(x, y, x + w, y + h, fill="#ffffff", outline=p["line"],
                                          tags=("page", f"ph{i}"))
             img = self._images.get(i)
             if img is not None and self._keys.get(i) == self._key(i, width):
@@ -188,13 +231,35 @@ class PageViewer(ttk.Frame):
             y += h + self.GAP
         if self.total_pages > self.pages:
             self.canvas.create_text(cw // 2, y, text=f"… first {self.pages} of {self.total_pages} pages shown",
-                                    fill=self.app.theme.p["muted"], tags="page")
+                                    fill=p["muted"], tags="page")
             y += 30
+        self._draw_excluded_overlays()
         self.canvas.configure(scrollregion=(0, 0, cw, y))
         if hasattr(self, "zoom_var"):
             self.zoom_var.set("Fit" if self.mode in ("width", "page") else f"{int(float(self.mode) * 100)}%")
         self._request_visible()
         self._update_page_label()
+
+    def _draw_excluded_overlays(self) -> None:
+        self.canvas.delete("excl")
+        if not self._layout or not self.excluded_pages:
+            return
+        p = self.app.theme.p
+        err = p["err"]
+        for i in sorted(self.excluded_pages):
+            if not (0 <= i < len(self._layout)):
+                continue
+            y, h, w, x = self._layout[i]
+            tag = ("page", "excl", f"excl{i}")
+            self.canvas.create_rectangle(x, y, x + w, y + h, outline=err, width=2, tags=tag)
+            self.canvas.create_line(x + 8, y + 8, x + w - 8, y + h - 8, fill=err, width=2, dash=(6, 6), tags=tag)
+            self.canvas.create_line(x + w - 8, y + 8, x + 8, y + h - 8, fill=err, width=2, dash=(6, 6), tags=tag)
+            pill_w = min(104, max(60, w - 16))
+            px0 = x + w - pill_w - 8
+            py0 = y + 8
+            self.canvas.create_rectangle(px0, py0, px0 + pill_w, py0 + 22, fill=err, outline="", tags=tag)
+            self.canvas.create_text(px0 + pill_w // 2, py0 + 11, text="⊘ EXCLUDED",
+                                    fill="#ffffff", font=("TkDefaultFont", 8, "bold"), tags=tag)
 
     def _key(self, i: int, width: int) -> tuple:
         return (i, width, self.rotations.get(i, 0) % 360)
@@ -216,7 +281,8 @@ class PageViewer(ttk.Frame):
         if not self._layout:
             return
         page = max(0, min(page, len(self._layout) - 1))
-        y = self._layout[page][0] - self.GAP
+        extra = 42 if page in self.section_headers else self.GAP
+        y = self._layout[page][0] - extra
         region = self.canvas.bbox("all")
         self.canvas.yview_moveto(max(0, y) / max(1, region[3] if region else 1))
         self._yview_done()
@@ -277,6 +343,8 @@ class PageViewer(ttk.Frame):
         y, h, w, x = self._layout[i]
         self.canvas.delete(f"im{i}")
         self.canvas.create_image(x, y, anchor="nw", image=photo, tags=("page", f"im{i}"))
+        if i in self.excluded_pages:
+            self.canvas.tag_raise(f"excl{i}")
 
     # ------------------------------------------------------------------ zoom / rotate
     def fit(self, mode: str) -> None:

@@ -47,6 +47,50 @@ def test_file_picker_ui(app, tmp_path):
     t.set_names(["john smith", "nobody"])
     t.preview(); pump(app)
     assert t.missing == ["nobody"] and len(t.rows) == 1
+    assert str(t.print_btn.cget("state")) == "normal"
+
+    dlg = t.open_print_dialog()
+    assert dlg is not None
+    pump(app, 25)
+    assert dlg.transient() == ""
+    assert len(dlg.items) == 1 and dlg.items[0].path.name == "John Smith.pdf"
+
+    # Hide & restore PrintDialog via File Picker
+    dlg.hide_dialog()
+    pump(app, 5)
+    assert dlg.state() == "withdrawn"
+    assert "Show Print" in str(t.print_btn.cget("text"))
+    restored = t.open_print_dialog()
+    assert restored is dlg and dlg.state() != "withdrawn"
+
+    # Preview batch banners & per-page tick/untick
+    real_pdf = tmp_path / "real.pdf"
+    real_pdf2 = tmp_path / "real2.pdf"
+    import pymupdf as fitz
+    for p, label in ((real_pdf, "Doc A"), (real_pdf2, "Doc B")):
+        d = fitz.open()
+        for pg in (1, 2):
+            d.new_page().insert_text((50, 50), f"{label} p{pg}")
+        d.save(str(p)); d.close()
+
+    from utilshub.core import printing as P
+    dlg.items = [P.PrintItem(real_pdf, "Ali"), P.PrintItem(real_pdf2, "Sara")]
+    dlg.refresh_preview()
+    pump(app, 35)
+    assert len(dlg._preview_labels) == 4
+    assert len(dlg.viewer.section_headers) == 2
+    assert 0 in dlg.viewer.section_headers and 2 in dlg.viewer.section_headers
+
+    dlg._toggle_preview_sheet(1, include=False)
+    assert dlg._excluded_sheets == {1} and dlg.viewer.excluded_pages == {1}
+    assert dlg.pv_pages_tree.item("s:1", "values")[0] == "—"
+    assert dlg.pv_pages_tree.item(f"g:{dlg._preview_groups[0][0]}", "values")[0] == "◐"
+
+    out_pkt = tmp_path / "packet.pdf"
+    comp = P.compose_print_pdf(dlg.items, dlg.current_settings(), out_pkt, excluded_sheets=set(dlg._excluded_sheets))
+    assert out_pkt.is_file() and comp.total_sheets == 3
+    dlg._on_close()
+
     t.apply(); pump(app)
     assert (dst / "John Smith.pdf").exists()
     t.undo()

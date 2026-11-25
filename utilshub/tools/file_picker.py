@@ -8,13 +8,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog, ttk
 
+from ..core import printing as P
 from ..core.fileops import transfer
 from ..core.fuzzy import name_score, prep_name
 from ..core.schema import Opt
 from ..core.sheets import SheetError, cell_text, load_book, write_xlsx
 from ..core.system import open_path, reveal
 from ..core.textutil import human_size, normalise_name, parse_ext_list, split_list
-from ..ui.widgets import DataTable, FolderEntry, ask_text, confirm, error, info, style_text
+from ..ui.print_dialog import PrintDialog, load_print_settings
+from ..ui.widgets import DataTable, FolderEntry, Tooltip, ask_text, confirm, error, info, style_text
 from .base import Command, Tool
 
 MODES = [("exact", "Exact (file name = name)"), ("starts", "File name starts with the name"),
@@ -141,6 +143,33 @@ class FilePicker(Tool):
                 section="Result"),
             Opt(p + "subfolder_per_name", False, "Put each name's files in its own sub-folder", "bool", section="Result"),
             Opt(p + "names", "", "Last list of names", "text", advanced=True),
+            Opt(p + "print_printer", "", "Default printer (empty = system default)", "str", section="Printing"),
+            Opt(p + "print_copies", 1, "Default copies", "int", min=1, max=99, section="Printing"),
+            Opt(p + "print_collate", True, "Collate copies", "bool", section="Printing"),
+            Opt(p + "print_duplex", "simplex", "Two-sided printing", "choice", choices=P.DUPLEX_MODES, section="Printing"),
+            Opt(p + "print_color_mode", "color", "Color mode", "choice", choices=P.COLOR_MODES, section="Printing"),
+            Opt(p + "print_orientation", "auto", "Page orientation", "choice", choices=P.ORIENTATIONS, section="Printing"),
+            Opt(p + "print_paper_size", "default", "Paper size", "choice", choices=P.PAPER_SIZES, section="Printing"),
+            Opt(p + "print_scale_mode", "fit", "Page scaling", "choice", choices=P.SCALE_MODES, section="Printing"),
+            Opt(p + "print_margin_mm", 6.0, "Margins (mm)", "float", min=0.0, max=100.0, section="Printing", advanced=True),
+            Opt(p + "print_margin_left_mm", 6.0, "Left margin / shift (mm)", "float", min=0.0, max=100.0, section="Printing"),
+            Opt(p + "print_margin_top_mm", 6.0, "Top margin / shift (mm)", "float", min=0.0, max=100.0, section="Printing"),
+            Opt(p + "print_margin_right_mm", 6.0, "Right margin / shift (mm)", "float", min=0.0, max=100.0, section="Printing"),
+            Opt(p + "print_margin_bottom_mm", 6.0, "Bottom margin / shift (mm)", "float", min=0.0, max=100.0, section="Printing"),
+            Opt(p + "print_nup", 1, "Pages per sheet (1, 2, or 4)", "int", min=1, max=4, section="Printing"),
+            Opt(p + "print_nup_border", True, "Draw borders around N-up pages", "bool", section="Printing", advanced=True),
+            Opt(p + "print_page_scope", "all", "Page scope", "choice", choices=P.PAGE_SCOPES, section="Printing", advanced=True),
+            Opt(p + "print_page_range", "", "Custom page range", "str", section="Printing", advanced=True),
+            Opt(p + "print_page_subset", "all", "Page subset", "choice", choices=P.PAGE_SUBSETS, section="Printing", advanced=True),
+            Opt(p + "print_reverse_order", False, "Print pages in reverse order", "bool", section="Printing", advanced=True),
+            Opt(p + "print_separator", "none", "Cover / separator pages", "choice", choices=P.SEPARATOR_MODES, section="Printing"),
+            Opt(p + "print_header_text", "", "Page header template", "str", section="Printing", advanced=True),
+            Opt(p + "print_footer_text", "", "Page footer template", "str", section="Printing", advanced=True),
+            Opt(p + "print_job_mode", "combined", "Print job batching", "choice", choices=P.JOB_MODES, section="Printing"),
+            Opt(p + "print_method", "direct", "Print engine", "choice", choices=P.PRINT_METHODS, section="Printing"),
+            Opt(p + "print_dpi", 200, "Print render DPI", "int", min=72, max=600, section="Printing", advanced=True),
+            Opt(p + "print_delay_seconds", 0.0, "Delay between jobs (seconds)", "float", min=0.0, max=120.0, section="Printing", advanced=True),
+            Opt(p + "print_wait_for_job", False, "Wait for printer queue between delayed jobs", "bool", section="Printing", advanced=True),
             *cls.append_opts(),
         ]
 
@@ -149,6 +178,7 @@ class FilePicker(Tool):
         self.hits: dict[str, list[Hit]] = {}
         self.rows: dict[str, Hit] = {}
         self.missing: list[str] = []
+        self._print_dlg: PrintDialog | None = None
 
     # ------------------------------------------------------------------ UI
     def build(self, parent: ttk.Frame) -> None:
@@ -218,6 +248,9 @@ class FilePicker(Tool):
         ttk.Button(act, text="🔍 Preview (dry run)", style="Accent.TButton", command=self.preview).pack(side="left")
         self.apply_btn = ttk.Button(act, text="Apply selected", command=self.apply, state="disabled")
         self.apply_btn.pack(side="left", padx=6)
+        self.print_btn = ttk.Button(act, text="🖨 Print…", command=self.open_print_dialog, state="disabled")
+        self.print_btn.pack(side="left", padx=(0, 6))
+        Tooltip(self.print_btn, "Open Print Center for ticked files (Ctrl+P)")
         self.undo_btn = ttk.Button(act, text="↩ Undo last", command=self.undo)
         self.undo_btn.pack(side="left")
         ttk.Button(act, text="Find duplicates in source", command=self.duplicates).pack(side="left", padx=6)
@@ -234,6 +267,9 @@ class FilePicker(Tool):
         m = self.table.menu
         m.add_separator()
         m.add_command(label="Toggle selected ✔", command=lambda: [self.toggle_row(i) for i in self.table.selection()])
+        m.add_command(label="🖨 Print selected…", command=self.print_selected_rows)
+        m.add_command(label="🖨 Quick print (default printer)", command=self.quick_print_selected)
+        m.add_separator()
         m.add_command(label="Open file", command=lambda: self._each_selected(lambda h: open_path(h.path)))
         m.add_command(label="Show in folder", command=lambda: self._each_selected(lambda h: reveal(h.path)))
         self._names_modified()
@@ -338,6 +374,7 @@ class FilePicker(Tool):
         self.summary.configure(text=f"{len(files)} files scanned • {found}/{len(hits)} names found • "
                                     f"{used} files • {len(self.missing)} missing")
         self.apply_btn.configure(state="normal" if self.rows else "disabled")
+        self.print_btn.configure(state="normal" if self.rows else "disabled")
         self.log(f"Preview: {found}/{len(hits)} names have files")
 
     @staticmethod
@@ -394,6 +431,85 @@ class FilePicker(Tool):
             self.app.notify(f"{res[0]} files {'moved' if action == 'move' else 'copied'}", "ok")
 
         self.app.jobs.submit(work, "Copying files", self.id, on_done=done, on_error=lambda m: error(self.frame, m))
+
+    def open_print_dialog(self, hits: list[Hit] | None = None) -> PrintDialog | None:
+        """Open (or restore if hidden) the Print Center dialog for the ticked or given matched files."""
+        if self._print_dlg is not None and self._print_dlg.winfo_exists():
+            if hits is None:
+                if self._print_dlg.state() == "withdrawn":
+                    self._print_dlg.restore_dialog()
+                    return self._print_dlg
+                chosen_paths = [h.path for h in self.rows.values() if h.selected]
+                dlg_paths = [it.path for it in self._print_dlg.items]
+                if chosen_paths == dlg_paths:
+                    self._print_dlg.restore_dialog()
+                    return self._print_dlg
+            self._print_dlg._on_close()
+            self._print_dlg = None
+
+        chosen = list(hits) if hits is not None else [h for h in self.rows.values() if h.selected]
+        if not chosen:
+            info(self.frame, "Nothing is ticked.")
+            return None
+        items = [P.PrintItem(path=h.path, label=h.name) for h in chosen]
+        self._print_dlg = PrintDialog(
+            self.frame, self.app, items, tool=self,
+            settings_prefix="file_picker.print_",
+            on_visibility_change=self._on_print_dlg_visibility,
+        )
+        return self._print_dlg
+
+    def _on_print_dlg_visibility(self, state: str) -> None:
+        if not self.built or not hasattr(self, "print_btn"):
+            return
+        if state == "hidden":
+            self.print_btn.configure(text="🖨 Show Print…", state="normal")
+        elif state == "closed":
+            self._print_dlg = None
+            self.print_btn.configure(text="🖨 Print…", state="normal" if self.rows else "disabled")
+        else:
+            self.print_btn.configure(text="🖨 Print…")
+
+    def print_selected_rows(self) -> PrintDialog | None:
+        """Open Print Center for the currently highlighted rows in the table."""
+        sel_hits = [self.rows[iid] for iid in self.table.selection() if iid in self.rows]
+        if not sel_hits:
+            return self.open_print_dialog()
+        return self.open_print_dialog(sel_hits)
+
+    def quick_print_selected(self) -> None:
+        """Print highlighted (or ticked) files immediately with saved printer & settings."""
+        sel_hits = [self.rows[iid] for iid in self.table.selection() if iid in self.rows]
+        chosen = sel_hits or [h for h in self.rows.values() if h.selected]
+        if not chosen:
+            info(self.frame, "Select or tick at least one file first.")
+            return
+        settings = load_print_settings(self.app, "file_picker.print_")
+        printer = (settings.printer or "").strip() or P.default_printer()
+        if not printer:
+            info(self.frame, "No default printer is configured. Use '🖨 Print…' to choose a printer.")
+            return
+        settings.printer = printer
+        if not confirm(self.frame, f"Quick print {len(chosen)} file(s) to:\n{printer}?"):
+            return
+        items = [P.PrintItem(path=h.path, label=h.name) for h in chosen]
+
+        def work(job):
+            return P.print_batch(
+                items, settings,
+                progress_cb=lambda d, t, m: job.progress(d, t, m),
+                cancelled=lambda: job.cancelled,
+            )
+
+        def done(res: P.PrintSummary) -> None:
+            msg = f"Sent {res.printed_files}/{res.total_files} file(s) ({res.total_sheets} sheet(s)) to {printer}."
+            self.log(msg, "warn" if res.failed_files else "ok")
+            self.app.notify(msg, "warn" if res.failed_files else "ok")
+            if res.errors:
+                error(self.frame, "\n".join(f"• {n}: {e}" for n, e in res.errors[:6]))
+
+        self.app.jobs.submit(work, f"Printing {len(items)} file(s)", self.id, on_done=done,
+                             on_error=lambda m: error(self.frame, f"Print failed: {m}"))
 
     def undo(self) -> None:
         e = self.app.journal.last_undoable(self.id)
@@ -452,14 +568,18 @@ class FilePicker(Tool):
                     self.rows[self.table.add(self._row(h))] = h
             self.summary.configure(text=f"{len(groups)} groups of identical files. The first of each group is un-ticked (kept).")
             self.apply_btn.configure(state="normal" if self.rows else "disabled")
+            self.print_btn.configure(state="normal" if self.rows else "disabled")
 
         self.app.jobs.submit(work, "Finding duplicates", self.id, on_done=done, on_error=lambda m: error(self.frame, m))
 
     def keys(self) -> dict:
-        return {"<F5>": self.preview, "<Control-Return>": self.apply, "<Control-z>": self.undo}
+        return {"<F5>": self.preview, "<Control-Return>": self.apply, "<Control-p>": self.open_print_dialog,
+                "<Control-z>": self.undo}
 
     def commands(self) -> list[Command]:
         return [Command("fp.preview", "File Picker: preview", self.preview, "File Picker"),
+                Command("fp.print", "File Picker: print ticked files…", self.open_print_dialog,
+                        "File Picker", "print printer pdf", "Ctrl+P"),
                 Command("fp.undo", "File Picker: undo last", self.undo, "File Picker")]
 
     def stats(self) -> dict:
