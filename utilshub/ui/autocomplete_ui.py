@@ -25,6 +25,7 @@ class AutocompletePanel(ttk.Frame):
         self.current = ""
         self._loading = False
         self._kw_job = None
+        self._kw_draft: str | None = None
         self._shown: list[str] = []
         ttk.Label(self, text="Boxes", style="H3.TLabel").pack(anchor="w", pady=(14, 2))
         ttk.Separator(self).pack(fill="x", pady=(0, 6))
@@ -225,6 +226,7 @@ class AutocompletePanel(ttk.Frame):
             self.linked.configure(text=("Also offered: " + ", ".join(d.linked) + " (Settings word lists)") if d.linked else "")
             self.kw.delete("1.0", "end")
             self.kw.insert("1.0", format_keywords(cfg.keywords))
+            self._kw_draft = None
             self._fill_shortcuts(cfg.shortcuts)
             self.abbr_var.set("")
             self.text_var.set("")
@@ -260,6 +262,11 @@ class AutocompletePanel(ttk.Frame):
     def _kw_later(self) -> None:
         if self._loading:
             return
+        try:
+            if self.kw.winfo_exists():
+                self._kw_draft = self.kw.get("1.0", "end")
+        except tk.TclError:
+            pass
         if self._kw_job is not None:
             self.after_cancel(self._kw_job)
         self._kw_job = self.after(600, self._flush_keywords)
@@ -273,7 +280,18 @@ class AutocompletePanel(ttk.Frame):
             self._kw_job = None
         if self._loading or not self.current:
             return
-        new = parse_keywords(self.kw.get("1.0", "end"))
+        raw: str | None = None
+        try:
+            if self.kw.winfo_exists():
+                raw = self.kw.get("1.0", "end")
+        except tk.TclError:
+            pass
+        if raw is None:
+            raw = self._kw_draft
+        self._kw_draft = None
+        if raw is None:
+            return
+        new = parse_keywords(raw)
         if new != self.svc.config(self.current).keywords:
             self.svc.set_keywords(self.current, new)
 
@@ -400,7 +418,8 @@ class AutocompletePanel(ttk.Frame):
         if e is not None and e.widget is not self:
             return
         self._flush_keywords()
-        for u in self._unsubs:
+        unsubs, self._unsubs = self._unsubs, []
+        for u in unsubs:
             u()
 
 
