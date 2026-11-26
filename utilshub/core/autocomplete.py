@@ -753,6 +753,7 @@ NOTE_SHORTCUTS = {"nr": "No response", "na": "No answer, will try again tomorrow
 def builtin_fields() -> list[FieldDef]:
     visa = "Visa Tracker"
     dp = "DocPacker"
+    ext = "Extract"
     return [
         FieldDef("visa.name", "Person: name", visa, description="Full name of the person."),
         FieldDef("visa.passport_no", "Person: passport number", visa, sensitive=True, default_enabled=False),
@@ -777,13 +778,40 @@ def builtin_fields() -> list[FieldDef]:
                  shortcuts={";d": "{date}", ";n": "{n}"}),
         FieldDef("whatsapp.search", "WhatsApp import: search box", "WhatsApp import"),
         FieldDef("match.search", "Name matcher: search for a name", "Match & Sync"),
+        FieldDef("ocr_match.patterns", "Find text: patterns / names", ext, mode="list", separators="\n",
+                 default_enabled=False, description="One regex pattern or name per line to search for."),
+        FieldDef("passport.mrz", "Passports: MRZ text", ext, mode="text", sensitive=True,
+                 default_enabled=False, description="Pasted 2-line MRZ text to validate."),
+        FieldDef("similarity_search.query", "Similarity Search: search query", ext, mode="list", separators="\n",
+                 default_enabled=False, description="Text, names, or phrases to search for (one per line)."),
+        FieldDef("similarity_search.exclude", "Similarity Search: exclude terms", ext, mode="list", separators=",; ",
+                 default_enabled=False, description="Words or terms to exclude from search results."),
+        FieldDef("similarity_search.extensions", "Similarity Search: file extensions", ext, mode="list", separators=",; ",
+                 keywords=["pdf", "docx", "doc", "xlsx", "jpg", "jpeg", "png", "txt"], default_enabled=False,
+                 description="Optional file extension filter (e.g. pdf, png)."),
+        FieldDef("similarity_search.pasted_title", "Similarity Search: pasted text title", ext,
+                 default_enabled=False, description="Title for a pasted text snippet added to the search corpus."),
+        FieldDef("similarity_search.pasted_text", "Similarity Search: pasted text body", ext, mode="text",
+                 default_enabled=False, description="Pasted text snippet content added to the search corpus."),
+        FieldDef("badge_extractor.ar_name", "Badge Extractor: Arabic name", ext,
+                 default_enabled=False, description="Arabic name on the ID badge."),
+        FieldDef("badge_extractor.en_name", "Badge Extractor: English name", ext,
+                 default_enabled=False, description="English / transliterated name on the ID badge."),
+        FieldDef("badge_extractor.job_title", "Badge Extractor: job title", ext, keywords=list(JOB_TITLES),
+                 linked=["match.job_title_keywords"], default_enabled=False, description="Job title on the ID badge."),
+        FieldDef("badge_extractor.badge_no", "Badge Extractor: badge number", ext, sensitive=True,
+                 default_enabled=False, description="ID badge number."),
+        FieldDef("badge_extractor.filename_template", "Badge Extractor: filename template", ext,
+                 default_enabled=False,
+                 description="Output filename pattern (e.g. {ar_name}-{en_name}-{badge_no}-{job_title})."),
     ]
 
 
-def _spec_defaults(spec: dict) -> FieldDef:
+def _spec_defaults(spec: dict, prefix: str = "field", group: str = "CV Sorter fields",
+                   label_prefix: str = "", default_enabled: bool | None = None) -> FieldDef:
     kind, key = str(spec.get("kind", "")), str(spec.get("key", ""))
     label = str(spec.get("label") or key.replace("_", " ").title())
-    d = FieldDef(f"field.{key}", label, "CV Sorter & Screenshot fields")
+    d = FieldDef(f"{prefix}.{key}", f"{label_prefix}{label}", group)
     if kind == "job_title" or key in ("job_title", "title", "position"):
         d.keywords, d.linked = list(JOB_TITLES), ["match.job_title_keywords"]
     elif kind == "company":
@@ -797,6 +825,8 @@ def _spec_defaults(spec: dict) -> FieldDef:
         d.keywords = [k.strip() for k in re.split(r"[,;\n]+", str(spec.get("pattern", ""))) if k.strip()]
     elif kind in ("today", "regex", "label", "builtin"):
         d.default_enabled = kind not in ("today", "regex")
+    if default_enabled is not None:
+        d.default_enabled = default_enabled
     return d
 
 
@@ -804,11 +834,19 @@ def default_sources() -> list[SOURCE]:
     """Fields that depend on the user's own settings: extraction fields and custom fields."""
     def cv_fields(ac: "Autocomplete") -> list[FieldDef]:
         out: dict[str, FieldDef] = {}
-        for opt in ("cv_sorter.fields", "screenshot.fields"):
-            specs = ac.settings.get(opt, [])
-            for spec in specs if isinstance(specs, list) else []:
-                if isinstance(spec, dict) and spec.get("key") and f"field.{spec['key']}" not in out:
-                    out[f"field.{spec['key']}"] = _spec_defaults(spec)
+        specs = ac.settings.get("cv_sorter.fields", [])
+        for spec in specs if isinstance(specs, list) else []:
+            if isinstance(spec, dict) and spec.get("key") and f"field.{spec['key']}" not in out:
+                out[f"field.{spec['key']}"] = _spec_defaults(spec)
+        return list(out.values())
+
+    def screenshot_fields(ac: "Autocomplete") -> list[FieldDef]:
+        out: dict[str, FieldDef] = {}
+        specs = ac.settings.get("screenshot.fields", [])
+        for spec in specs if isinstance(specs, list) else []:
+            if isinstance(spec, dict) and spec.get("key") and f"screenshot.{spec['key']}" not in out:
+                out[f"screenshot.{spec['key']}"] = _spec_defaults(
+                    spec, prefix="screenshot", group="Extract", label_prefix="Screenshots: ", default_enabled=False)
         return list(out.values())
 
     def custom(setting: str, prefix: str, group: str) -> SOURCE:
@@ -818,7 +856,7 @@ def default_sources() -> list[SOURCE]:
                     for l in (labels if isinstance(labels, list) else []) if str(l).strip()]
         return source
 
-    return [cv_fields, custom("visa.custom_fields", "visa.custom", "Visa Tracker"),
+    return [cv_fields, screenshot_fields, custom("visa.custom_fields", "visa.custom", "Visa Tracker"),
             custom("docpacker.custom_fields", "docpacker.custom", "DocPacker")]
 
 

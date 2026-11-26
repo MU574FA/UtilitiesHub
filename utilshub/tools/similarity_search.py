@@ -37,6 +37,7 @@ from ..core.schema import Opt
 from ..core.sheets import write_xlsx
 from ..core.system import open_path, reveal
 from ..core.textutil import human_size, parse_ext_list
+from ..ui.autocomplete import attach as autocomplete
 from ..ui.viewer import PageViewer
 from ..ui.widgets import DataTable, Tooltip, confirm, copy_to_clipboard, error, info, modal, style_text
 from .base import Command, Tool
@@ -378,7 +379,9 @@ class SimilaritySearch(Tool):
         erow = ttk.Frame(left)
         erow.pack(fill="x", pady=2)
         ttk.Label(erow, text="Exts").pack(side="left")
-        ttk.Entry(erow, width=16, textvariable=var("extensions")).pack(side="left", padx=4, fill="x", expand=True)
+        self.ext_entry = ttk.Entry(erow, width=16, textvariable=var("extensions"))
+        self.ext_entry.pack(side="left", padx=4, fill="x", expand=True)
+        autocomplete(self.ext_entry, "similarity_search.extensions")
 
         ibar = ttk.Frame(left)
         ibar.pack(fill="x", pady=(6, 0))
@@ -414,6 +417,7 @@ class SimilaritySearch(Tool):
         self.query_text = tk.Text(qbox, height=3, wrap="word", undo=True)
         self.query_text.pack(fill="x", pady=(6, 4))
         style_text(right, self.query_text)
+        autocomplete(self.query_text, "similarity_search.query")
         self.query_text.bind("<Control-Return>", lambda _e: (self.run_search(), "break")[1])
         self.query_text.bind("<KeyRelease>", lambda _e: self._schedule_live_search())
 
@@ -428,7 +432,9 @@ class SimilaritySearch(Tool):
         self.query_src_lbl.pack(side="left", padx=6)
 
         self.exclude_var = tk.StringVar(value="")
-        ttk.Entry(r3, width=18, textvariable=self.exclude_var).pack(side="right")
+        self.exclude_entry = ttk.Entry(r3, width=18, textvariable=self.exclude_var)
+        self.exclude_entry.pack(side="right")
+        autocomplete(self.exclude_entry, "similarity_search.exclude")
         ttk.Label(r3, text="Exclude:", style="Muted.TLabel").pack(side="right", padx=(8, 4))
         self.exclude_var.trace_add("write", lambda *_a: self._schedule_live_search())
 
@@ -642,11 +648,14 @@ class SimilaritySearch(Tool):
         win, body = modal(self.frame, "Add pasted text to corpus", 560, 380)
         ttk.Label(body, text="Title").pack(anchor="w")
         title_var = tk.StringVar(value=f"Pasted text {self._paste_seq}")
-        ttk.Entry(body, textvariable=title_var).pack(fill="x", pady=(2, 8))
+        title_entry = ttk.Entry(body, textvariable=title_var)
+        title_entry.pack(fill="x", pady=(2, 8))
+        autocomplete(title_entry, "similarity_search.pasted_title")
         ttk.Label(body, text="Text").pack(anchor="w")
         txt = tk.Text(body, height=10, wrap="word")
         txt.pack(fill="both", expand=True, pady=(2, 8))
         style_text(win, txt)
+        autocomplete(txt, "similarity_search.pasted_text")
         txt.focus_set()
 
         def ok() -> None:

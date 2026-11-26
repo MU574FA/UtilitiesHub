@@ -99,6 +99,31 @@ def test_search_badge_candidates_multiple_similar_names(tmp_path):
     assert id_hits[0].row == 2
 
 
+def test_find_candidate_cvs(tmp_path):
+    cv_dir = tmp_path / "cvs"
+    cv_dir.mkdir()
+    cv1 = cv_dir / "Firoj_Khan_CV_2026.pdf"
+    cv1.write_text("dummy")
+    sub = cv_dir / "Ahmed Hassan"
+    sub.mkdir()
+    cv2 = sub / "Resume_Final.docx"
+    cv2.write_text("dummy")
+    cv3 = cv_dir / "Worker_64847.pdf"
+    cv3.write_text("dummy")
+    other = cv_dir / "John_Smith_CV.pdf"
+    other.write_text("dummy")
+
+    hits1 = B.find_candidate_cvs(cv_dir, en_name="Firoj Khan")
+    assert hits1 and hits1[0][1] == cv1
+    assert all(p != other for _, p in hits1)
+
+    hits2 = B.find_candidate_cvs(cv_dir, en_name="Ahmed Hassan")
+    assert hits2 and hits2[0][1] == cv2
+
+    hits3 = B.find_candidate_cvs(cv_dir, badge_no="64847")
+    assert hits3 and hits3[0][1] == cv3
+
+
 def test_badge_extractor_ui_smoke():
     script = Path(__file__).resolve().parent / "ui_smoke" / "badge_extractor.py"
     proc = subprocess.run(

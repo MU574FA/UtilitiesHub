@@ -207,10 +207,18 @@ check("destroying a box cleans up", ctl._dead and ctl.popup is None)
 
 print("\n== settings panel")
 from utilshub.ui.autocomplete_ui import AutocompletePanel
+from utilshub.core.fields import default_screenshot_fields
+svc.settings.set("screenshot.fields", default_screenshot_fields())
 svc.settings.set("visa.custom_fields", ["Agency"])
 svc.pending_select = "visa.position"
 panel = AutocompletePanel(faketk.Widget(root), app)
 check("panel lists every field plus group rows", len(panel._shown) == len(svc.fields()) and panel.tree.exists("g:Visa Tracker"))
+check("panel lists Extract group with fields disabled by default",
+      panel.tree.exists("g:Extract")
+      and panel.tree.exists("badge_extractor.job_title")
+      and panel.tree.exists("screenshot.title")
+      and panel.tree.item("badge_extractor.job_title", "values")[0] == "—"
+      and panel.tree.item("screenshot.title", "values")[0] == "—")
 check("pending selection is shown", panel.current == "visa.position" and "Welder" in panel.kw._s, panel.current)
 check("custom field appears", "visa.custom.agency" in panel._shown)
 panel.tree.identify_region = lambda x, y: "cell"; panel.tree.identify_column = lambda x: "#1"; panel.tree.identify_row = lambda y: "visa.nationality"
@@ -236,7 +244,7 @@ check("reset puts the defaults back", svc.config("t.job").enabled and "Welder" i
 panel.select("visa.passport_no")
 check("sensitive boxes explain why they are never remembered", "Never remembered" in panel.learn_note._kw.get("text", ""), panel.learn_note._kw)
 panel.filter.set("nation"); 
-check("filter narrows the list", panel._shown == ["visa.nationality"], panel._shown)
+check("filter narrows the list", panel._shown == ["screenshot.nationality", "visa.nationality"], panel._shown)
 sel_before = len(svc._listeners)
 panel._destroy()
 check("closing the panel unsubscribes", len(svc._listeners) == sel_before - 1)

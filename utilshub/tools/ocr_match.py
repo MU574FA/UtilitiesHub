@@ -9,6 +9,7 @@ from ..core import ocr
 from ..core.readers import DocInfo, ReadOptions, read_document, supported_extensions
 from ..core.schema import Opt
 from ..core.textmatch import TextHit, find_text, split_patterns
+from ..ui.autocomplete import attach as autocomplete
 from ..ui.widgets import DataTable, copy_to_clipboard, error, info, style_text
 from .base import Command, Tool
 
@@ -95,6 +96,7 @@ class OcrMatch(Tool):
         self.patterns = tk.Text(box, height=3, wrap="none", undo=True)
         self.patterns.pack(fill="x")
         style_text(self.frame, self.patterns)
+        autocomplete(self.patterns, "ocr_match.patterns")
         self.patterns.insert("1.0", self.get("patterns"))
 
         rbar = ttk.Frame(low)

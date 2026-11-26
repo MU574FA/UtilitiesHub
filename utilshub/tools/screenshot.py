@@ -43,7 +43,7 @@ class CapturePopup:
         body.rowconfigure(0, weight=1)
         left = ttk.Frame(body)
         left.grid(row=0, column=0, sticky="ns", padx=(0, 12))
-        self.form = FieldForm(left, self.app, tool.specs(), cap.values)
+        self.form = FieldForm(left, self.app, tool.specs(), cap.values, ac_prefix="screenshot")
         self.form.pack(fill="x")
         self.ai_note = ttk.Label(left, style="Muted.TLabel", wraplength=300, justify="left")
         self._show_ai_note()

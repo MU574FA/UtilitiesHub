@@ -24,6 +24,7 @@ faketk.Widget.winfo_height = lambda self: 700
 faketk.Widget.winfo_reqheight = lambda self: 300
 import fakeapp  # noqa: E402
 from utilshub.core import badges as B  # noqa: E402
+from utilshub.tools.cv_sorter import CvSorter  # noqa: E402
 from utilshub.tools.extract import ExtractHub  # noqa: E402
 from utilshub.ui.folders_panel import feature_path_keys  # noqa: E402
 
@@ -46,6 +47,7 @@ class _DummyRenderer:
 tmp = Path(tempfile.mkdtemp())
 app = fakeapp.FakeApp(tmp)
 app.renderer = _DummyRenderer()
+app.settings.register(CvSorter.options())
 app.settings.register(ExtractHub.options())
 hub = ExtractHub(app)
 app.tools[hub.id] = hub
@@ -72,6 +74,7 @@ hub.on_show()
 hub.select("badge_extractor")
 be = hub.member("badge_extractor")
 check("BadgeExtractor tab builds cleanly", be is not None and be.built)
+check("BadgeExtractor exposes Open CV button", hasattr(be, "open_cv_btn"))
 
 # Create input/output folders and sample Excel sheet with multiple similar names
 in_dir = tmp / "badges_in"
@@ -147,6 +150,50 @@ try:
     # Open Candidate Info Check modal (DocPacker-style multi-match popup)
     be.show_candidate_info()
     check("Candidate Info Check modal opens without error", True)
+
+    # Open CV falls back to CV Sorter's watch_folder/Sorted when dest_folder & cv_folder are empty
+    watch_cv_dir = tmp / "cv_watch"
+    app.settings.set("cv_sorter.watch_folder", str(watch_cv_dir))
+    app.settings.set("cv_sorter.dest_folder", "")
+    app.settings.set("badge_extractor.cv_folder", "")
+    eff_dir, from_cv = be._effective_cv_folder()
+    check("Effective CV folder defaults to CV Sorter watch/Sorted",
+          from_cv and eff_dir == str(watch_cv_dir / "Sorted"), (eff_dir, from_cv))
+
+    # Open CV defaults to CV Sorter's output path (dest_folder, stripping {placeholder} template)
+    cv_dir = tmp / "cvs_sorted"
+    cv_sub = cv_dir / "Electrician"
+    cv_sub.mkdir(parents=True)
+    cv_file = cv_sub / "Firoz_Khan_CV.pdf"
+    cv_file.write_text("dummy")
+    app.settings.set("cv_sorter.dest_folder", f"{cv_dir}/{{job_title}}")
+    faketk.flush()
+    opened_cvs = []
+    import utilshub.tools.badge_extractor as be_mod
+    orig_open_path = be_mod.open_path
+    be_mod.open_path = lambda p: opened_cvs.append(Path(p))
+    try:
+        be.open_candidate_cv()
+    finally:
+        be_mod.open_path = orig_open_path
+    check("Open CV defaults to CV Sorter output path when cv_folder is empty",
+          opened_cvs == [cv_file], opened_cvs)
+
+    # Explicit badge_extractor.cv_folder overrides CV Sorter's output path
+    override_dir = tmp / "cvs_override"
+    override_dir.mkdir()
+    override_cv = override_dir / "Firoz_Khan_Override.pdf"
+    override_cv.write_text("dummy")
+    app.settings.set("badge_extractor.cv_folder", str(override_dir))
+    faketk.flush()
+    opened_override = []
+    be_mod.open_path = lambda p: opened_override.append(Path(p))
+    try:
+        be.open_candidate_cv()
+    finally:
+        be_mod.open_path = orig_open_path
+    check("Explicit badge_extractor.cv_folder overrides CV Sorter output path",
+          opened_override == [override_cv], opened_override)
 
     # Save renamed badge and verify move + journal + undo
     be.save_current()

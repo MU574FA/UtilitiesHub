@@ -244,3 +244,49 @@ def test_change_listeners_fire(ac):
 def test_shortcut_already_typed_past_is_not_expanded_again(ac):
     assert ac.expansion("t.job", "se ", 3) is None
     assert ac.expansion("t.note", "called nr ", 10) is None
+
+
+def test_extract_fields_present_and_disabled_by_default(ac):
+    from utilshub.core.fields import default_screenshot_fields
+
+    ac.settings.set("screenshot.fields", default_screenshot_fields())
+    extract_fields = [d for d in ac.fields() if d.group == "Extract"]
+    by_id = {d.id: d for d in extract_fields}
+
+    expected_static = {
+        "badge_extractor.ar_name",
+        "badge_extractor.en_name",
+        "badge_extractor.job_title",
+        "badge_extractor.badge_no",
+        "badge_extractor.filename_template",
+        "ocr_match.patterns",
+        "passport.mrz",
+        "similarity_search.query",
+        "similarity_search.exclude",
+        "similarity_search.extensions",
+        "similarity_search.pasted_title",
+        "similarity_search.pasted_text",
+    }
+    expected_screenshot = {f"screenshot.{s['key']}" for s in default_screenshot_fields()}
+    assert expected_static.issubset(by_id)
+    assert expected_screenshot.issubset(by_id)
+
+    for d in extract_fields:
+        assert d.default_enabled is False, d.id
+        assert not ac.is_enabled(d.id), d.id
+
+    assert ac.suggest("badge_extractor.job_title", "wel") is None
+    assert ac.suggest("screenshot.title", "eng") is None
+    assert ac.suggest("ocr_match.patterns", "al") is None
+
+    ac.set_enabled("badge_extractor.job_title", True)
+    assert "Welder" in texts(ac.suggest("badge_extractor.job_title", "wel"))
+
+    ac.set_enabled("screenshot.title", True)
+    assert "Electrician" in texts(ac.suggest("screenshot.title", "elec"))
+
+    ac.set_enabled("ocr_match.patterns", True)
+    ac.set_keywords("ocr_match.patterns", ["Welder", "Electrician"])
+    res = ac.suggest("ocr_match.patterns", "Welder\nelec")
+    assert texts(res) == ["Electrician"]
+    assert ac.accept("Welder\nelec", 11, res, res.items[0]) == ("Welder\nElectrician", 18)

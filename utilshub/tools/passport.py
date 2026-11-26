@@ -9,6 +9,7 @@ from ..core import ocr
 from ..core.mrz import parse_mrz, passport_summary
 from ..core.readers import ReadOptions, read_document, supported_extensions
 from ..core.schema import Opt
+from ..ui.autocomplete import attach as autocomplete
 from ..ui.widgets import DataTable, error, info, style_text
 from .base import Command, Tool
 
@@ -68,6 +69,7 @@ class PassportTool(Tool):
         self.paste = tk.Text(left, height=5, wrap="none")
         self.paste.pack(fill="x")
         style_text(self.frame, self.paste)
+        autocomplete(self.paste, "passport.mrz")
         row = ttk.Frame(left)
         row.pack(fill="x", pady=4)
         ttk.Button(row, text="Check MRZ  (F5)", style="Accent.TButton", command=self.check_pasted).pack(side="left")

@@ -4,6 +4,7 @@ transliterate to English, check multiple similar candidates in an Excel sheet, a
 from __future__ import annotations
 
 import itertools
+import re
 import tkinter as tk
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -19,6 +20,7 @@ from ..core.sheets import SheetError
 from ..core.system import open_path, reveal
 from ..core.textutil import parse_ext_list
 from ..core.watcher import FolderWatcher
+from ..ui.autocomplete import attach as autocomplete
 from ..ui.viewer import PageViewer
 from ..ui.widgets import DataTable, FolderEntry, Tooltip, confirm, copy_to_clipboard, error, info, modal, style_text
 from .base import Command, Tool
@@ -71,6 +73,9 @@ class BadgeExtractor(Tool):
                 help="Folder watched for dropped badge images (and default folder for Add badges…)."),
             Opt("badge_extractor.output_folder", "", "Output folder", "folder", section="Folders",
                 help="Destination folder where renamed badge images are saved."),
+            Opt("badge_extractor.cv_folder", "", "CVs folder", "folder", section="Folders",
+                help="Folder (searched recursively) where candidate CVs are stored for the Open CV button "
+                     "(leave empty to use CV Sorter's output folder)."),
             Opt("badge_extractor.action", "move", "When saving a badge", "choice",
                 choices=[("move", "Move to output folder"), ("copy", "Copy to output folder")],
                 section="Folders"),
@@ -156,10 +161,13 @@ class BadgeExtractor(Tool):
     def build(self, parent: ttk.Frame) -> None:
         self.in_var = tk.StringVar(value=str(self.get("input_folder") or ""))
         self.out_var = tk.StringVar(value=str(self.get("output_folder") or ""))
+        self.cv_var = tk.StringVar(value=str(self.get("cv_folder") or ""))
         self.sync_var("input_folder", self.in_var)
         self.sync_var("output_folder", self.out_var)
+        self.sync_var("cv_folder", self.cv_var)
         self.in_var.trace_add("write", lambda *_: (self.put("input_folder", self.in_var.get().strip()), self._refresh_status()))
         self.out_var.trace_add("write", lambda *_: (self.put("output_folder", self.out_var.get().strip()), self._refresh_status()))
+        self.cv_var.trace_add("write", lambda *_: self.put("cv_folder", self.cv_var.get().strip()))
 
         # 1. Clean 1-row primary action bar
         bar = ttk.Frame(parent)
@@ -215,6 +223,13 @@ class BadgeExtractor(Tool):
                              title="Badge output folder")
         out_fe.grid(row=0, column=3, sticky="ew")
         Tooltip(out_fe.entry, "Renamed badge files are saved here after your review.")
+
+        ttk.Label(self._folders_frame, text="CVs folder:").grid(row=1, column=0, sticky="w", padx=(0, 6), pady=(4, 0))
+        cv_fe = FolderEntry(self._folders_frame, self.cv_var, "dir", width=22, open_button=True,
+                            title="Candidate CVs folder")
+        cv_fe.grid(row=1, column=1, columnspan=3, sticky="ew", pady=(4, 0))
+        Tooltip(cv_fe.entry, "Folder (searched recursively) where candidate CVs are stored for Open CV "
+                             "(leave empty to use CV Sorter's output folder).")
 
         if self._folders_open:
             self._folders_frame.pack(fill="x", pady=(0, 4))
@@ -353,6 +368,7 @@ class BadgeExtractor(Tool):
         ar_row.columnconfigure(0, weight=1)
         self.ar_entry = ttk.Entry(ar_row, textvariable=self.ar_var, justify="right")
         self.ar_entry.grid(row=0, column=0, sticky="ew")
+        autocomplete(self.ar_entry, "badge_extractor.ar_name")
         swap_btn = ttk.Button(ar_row, text="⇅ Swap", style="Tiny.TButton", command=self.swap_name_job)
         swap_btn.grid(row=0, column=1, padx=(4, 0))
         Tooltip(swap_btn, "Swap Arabic Name (Line 1) and Job Title (Line 2)")
@@ -364,6 +380,7 @@ class BadgeExtractor(Tool):
         en_row.columnconfigure(0, weight=1)
         self.en_entry = ttk.Entry(en_row, textvariable=self.en_var)
         self.en_entry.grid(row=0, column=0, sticky="ew")
+        autocomplete(self.en_entry, "badge_extractor.en_name")
         auto_btn = ttk.Button(en_row, text="↻ Auto", style="Tiny.TButton", command=self.retransliterate)
         auto_btn.grid(row=0, column=1, padx=(4, 0))
         Tooltip(auto_btn, "Re-transliterate from Arabic Name")
@@ -379,9 +396,11 @@ class BadgeExtractor(Tool):
         jb_row.columnconfigure(2, weight=1)
         self.job_entry = ttk.Entry(jb_row, textvariable=self.job_var, justify="right")
         self.job_entry.grid(row=0, column=0, sticky="ew")
+        autocomplete(self.job_entry, "badge_extractor.job_title")
         ttk.Label(jb_row, text="Badge #:").grid(row=0, column=1, sticky="w", padx=(10, 6))
         self.badge_entry = ttk.Entry(jb_row, textvariable=self.badge_var, width=10)
         self.badge_entry.grid(row=0, column=2, sticky="ew")
+        autocomplete(self.badge_entry, "badge_extractor.badge_no")
 
         # Row 3: Auto-hiding duplicate badge warning
         self.dup_lbl = ttk.Label(form_box, text="", style="Warn.TLabel")
@@ -399,6 +418,7 @@ class BadgeExtractor(Tool):
         self.tpl_combo = ttk.Combobox(tpl_row, textvariable=self.tpl_var,
                                       values=[tpl for _, tpl in B.FILENAME_PRESETS])
         self.tpl_combo.grid(row=0, column=0, sticky="ew")
+        autocomplete(self.tpl_combo, "badge_extractor.filename_template")
         Tooltip(self.tpl_combo, "Customize the output filename using {ar_name}, {en_name}, {badge_no}, {job_title}, {en_job_title}, {matched_name}, {date}.")
         self._tok_btn = ttk.Button(tpl_row, text="+ Field ▾", style="Tiny.TButton", command=self._show_token_menu)
         self._tok_btn.grid(row=0, column=1, padx=(4, 0))
@@ -435,6 +455,9 @@ class BadgeExtractor(Tool):
 
         ttk.Button(mbar, text="🔍 Check", style="Tiny.TButton", command=self.check_matches_current).pack(side="left", padx=(6, 0))
         ttk.Button(mbar, text="👤 Details (Ctrl+K)", style="Tiny.TButton", command=self.show_candidate_info).pack(side="left", padx=(4, 0))
+        self.open_cv_btn = ttk.Button(mbar, text="📄 Open CV", style="Tiny.TButton", command=self.open_candidate_cv)
+        self.open_cv_btn.pack(side="left", padx=(4, 0))
+        Tooltip(self.open_cv_btn, "Find and open the matching CV from your CVs folder")
         ttk.Button(mbar, text="✔ Use Selected", style="Tiny.TButton", command=self.apply_selected_match).pack(side="right")
 
         self.match_lbl = ttk.Label(self._match_tab, text="Choose an Excel sheet to check candidate similarity.", style="Muted.TLabel")
@@ -508,10 +531,31 @@ class BadgeExtractor(Tool):
             self._folders_frame.pack_forget()
             self.folders_btn.configure(text="📁 Folders ▾")
 
+    def _effective_cv_folder(self) -> tuple[str, bool]:
+        """Return ``(folder, from_cv_sorter)`` for locating candidate CVs."""
+        explicit = str(self.get("cv_folder") or "").strip()
+        if explicit:
+            return explicit, False
+        raw = str(self.settings.get("cv_sorter.dest_folder", "") or "").strip()
+        if raw:
+            if "{" in raw:
+                fixed = re.split(r"\{", raw, 1)[0]
+                fixed = re.sub(r"[^/\\]*$", "", fixed)
+                if fixed.strip():
+                    return str(Path(fixed)), True
+            else:
+                return raw, True
+        watch = str(self.settings.get("cv_sorter.watch_folder", "") or "").strip()
+        if watch:
+            return str(Path(watch) / "Sorted"), True
+        return "", False
+
     def _folders_tooltip(self) -> str:
         in_p = str(self.get("input_folder") or "").strip() or "(not set)"
         out_p = str(self.get("output_folder") or "").strip() or "(not set)"
-        return f"Watch / Input: {in_p}\nOutput: {out_p}"
+        cv_p, from_cv_sorter = self._effective_cv_folder()
+        cv_lbl = f"{cv_p} (CV Sorter output)" if (cv_p and from_cv_sorter) else (cv_p or "(not set)")
+        return f"Watch / Input: {in_p}\nOutput: {out_p}\nCVs: {cv_lbl}"
 
     def _open_current_badge(self) -> None:
         it = self._current()
@@ -1258,9 +1302,94 @@ class BadgeExtractor(Tool):
         bar = ttk.Frame(body)
         bar.pack(fill="x")
         ttk.Button(bar, text="✔ Use this candidate's name", style="Accent.TButton", command=use_this).pack(side="left")
+        ttk.Button(bar, text="📄 Open CV", command=lambda: self.open_candidate_cv(hits[active_idx[0]])).pack(side="left", padx=(6, 0))
         ttk.Button(bar, text="Copy", command=copy_row).pack(side="left", padx=6)
         ttk.Button(bar, text="Close", command=top.destroy).pack(side="right")
         show_hit(0)
+
+    def open_candidate_cv(self, match: B.CandidateMatch | None = None) -> None:
+        """Find and open the matching CV file from the configured CVs folder."""
+        cv_dir, _ = self._effective_cv_folder()
+        if not cv_dir or not Path(cv_dir).is_dir():
+            init_dir = cv_dir if (cv_dir and Path(cv_dir).is_dir()) else self.input_dir()
+            chosen = filedialog.askdirectory(title="Choose CVs folder", initialdir=init_dir)
+            if not chosen:
+                return
+            cv_dir = chosen
+            self.put("cv_folder", cv_dir)
+            if self.built:
+                self.cv_var.set(cv_dir)
+
+        it = self._current()
+        m = match or self._selected_inline_match()
+        matched_name = (m.name_value or m.matched_value).strip() if m else ""
+        en = self.en_var.get().strip() if self.built else (it.en_name if it else "")
+        ar = self.ar_var.get().strip() if self.built else (it.ar_name if it else "")
+        bn = self.badge_var.get().strip() if self.built else (it.badge_no if it else "")
+        query_lbl = matched_name or en or ar or bn
+        if not query_lbl:
+            if self.built:
+                info(self.frame, "Extract or type a name or badge number first.")
+            return
+
+        hits = B.find_candidate_cvs(cv_dir, matched_name=matched_name, en_name=en, ar_name=ar, badge_no=bn)
+        if not hits:
+            if self.built and confirm(
+                self.frame,
+                f"No matching CV found for “{query_lbl}” in:\n{cv_dir}\n\nOpen the CVs folder to browse manually?",
+            ):
+                open_path(cv_dir)
+            return
+
+        if len(hits) == 1 or (hits[0][0] >= 0.90 and hits[0][0] - hits[1][0] >= 0.15):
+            cv_path = hits[0][1]
+            open_path(cv_path)
+            self.app.notify(f"Opened CV: {cv_path.name} ({int(round(hits[0][0] * 100))}%)", "ok")
+            return
+
+        top, body = modal(self.frame, f"Open Candidate CV — {query_lbl}", 540, 0)
+        top.transient(self.frame.winfo_toplevel())
+        top.bind("<Escape>", lambda _e: top.destroy())
+        ttk.Label(body, text=f"{len(hits)} matching CV file(s) found — choose one to open:",
+                  style="H3.TLabel").pack(anchor="w", pady=(0, 6))
+
+        cv_tree = ttk.Treeview(body, columns=("pct", "file", "folder"), show="headings",
+                               height=min(8, len(hits)), selectmode="browse")
+        for col, head, w in (("pct", "Match %", 70), ("file", "File", 220), ("folder", "Folder", 210)):
+            cv_tree.heading(col, text=head)
+            cv_tree.column(col, width=w, stretch=(col != "pct"))
+        path_map: dict[str, Path] = {}
+        for idx, (score, p) in enumerate(hits):
+            iid = str(idx)
+            path_map[iid] = p
+            rel_dir = str(p.parent.relative_to(cv_dir)) if p.parent != Path(cv_dir) else "."
+            cv_tree.insert("", "end", iid=iid, values=(f"{int(round(score * 100))}%", p.name, rel_dir))
+        cv_tree.pack(fill="both", expand=True, pady=(0, 8))
+        cv_tree.selection_set("0")
+
+        def _chosen_path() -> Path | None:
+            sel = cv_tree.selection()
+            return path_map.get(sel[0]) if sel else None
+
+        def _open_sel(_e=None) -> None:
+            p = _chosen_path()
+            if p is not None:
+                open_path(p)
+                top.destroy()
+
+        def _reveal_sel() -> None:
+            p = _chosen_path()
+            if p is not None:
+                reveal(p)
+
+        cv_tree.bind("<Double-1>", _open_sel)
+        top.bind("<Return>", _open_sel)
+
+        bbar = ttk.Frame(body)
+        bbar.pack(fill="x")
+        ttk.Button(bbar, text="📄 Open Selected", style="Accent.TButton", command=_open_sel).pack(side="left")
+        ttk.Button(bbar, text="📂 Show in Folder", command=_reveal_sel).pack(side="left", padx=6)
+        ttk.Button(bbar, text="Close", command=top.destroy).pack(side="right")
 
     # ------------------------------------------------------------------ saving, undo, queue management
     def save_current(self) -> None:
@@ -1497,6 +1626,8 @@ class BadgeExtractor(Tool):
                     self.title, "watch folder auto"),
             Command("badge_extractor.candidate", "Badge Extractor: candidate info check", self.show_candidate_info,
                     self.title, "excel similarity candidate", "Ctrl+K"),
+            Command("badge_extractor.open_cv", "Badge Extractor: open candidate CV", self.open_candidate_cv,
+                    self.title, "cv resume pdf open"),
             Command("badge_extractor.save", "Badge Extractor: save & next badge", self.save_current,
                     self.title, "rename save", "Ctrl+Enter"),
         ]

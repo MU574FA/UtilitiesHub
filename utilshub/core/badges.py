@@ -25,6 +25,8 @@ from .textutil import arabic_fold, has_arabic, sanitize_filename
 log = logging.getLogger(__name__)
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
+CV_EXTENSIONS = {".pdf", ".docx", ".doc", ".rtf", ".odt", ".txt", ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
+_CV_NOISE = re.compile(r"\b(?:cv|resume|résumé|curriculum|vitae|updated|final|new|copy|scan|doc|document)\b", re.I)
 DEFAULT_FILENAME_TEMPLATE = "{ar_name}-{en_name}-{badge_no}-{job_title}"
 
 FILENAME_PRESETS: list[tuple[str, str]] = [
@@ -695,3 +697,63 @@ def list_sheet_columns(path: str, sheet: str = "", header_row: int = 1) -> tuple
     book = load_book(p)
     table = book.table(sheet.strip() or None, max(0, max(1, int(header_row or 1)) - 1))
     return list(book.names), list(table.headers)
+
+
+def _clean_cv_label(raw: str) -> str:
+    spaced = re.sub(r"[_\-.]+", " ", raw or "")
+    cleaned = _CV_NOISE.sub(" ", spaced)
+    return " ".join(cleaned.split()).strip()
+
+
+def find_candidate_cvs(
+    folder: str | Path,
+    *,
+    matched_name: str = "",
+    en_name: str = "",
+    ar_name: str = "",
+    badge_no: str = "",
+    threshold: float = 0.55,
+    limit: int = 10,
+) -> list[tuple[float, Path]]:
+    """Search `folder` recursively for CVs matching the candidate name or badge number."""
+    root = Path(folder)
+    if not root.is_dir():
+        return []
+
+    queries = list(dict.fromkeys(q.strip() for q in (matched_name, en_name, ar_name) if q and q.strip()))
+    bn_digits = re.sub(r"\D", "", (badge_no or "").translate(_AR_TO_EN_DIGITS))
+    results: list[tuple[float, Path]] = []
+
+    for p in root.rglob("*"):
+        if not p.is_file() or p.name.startswith(("~$", ".")) or p.suffix.lower() not in CV_EXTENSIONS:
+            continue
+        stem_clean = _clean_cv_label(p.stem)
+        parent_clean = _clean_cv_label(p.parent.name) if p.parent != root else ""
+        cand_texts = [s for s in (stem_clean, parent_clean, f"{parent_clean} {stem_clean}".strip()) if s]
+
+        best = 0.0
+        for q in queries:
+            qp = prep_name(q)
+            q_tokens = [t for t in qp.tokens if len(t) >= 2]
+            for cand in cand_texts:
+                s = _name_similarity_score(q, cand)
+                if s < 0.92 and len(q_tokens) >= 2:
+                    cp_tokens = prep_name(cand).tokens
+                    if cp_tokens and all(max((lev_ratio(t, c) for c in cp_tokens), default=0.0) >= 0.85 for t in q_tokens):
+                        s = max(s, 0.92)
+                if s > best:
+                    best = s
+
+        if len(bn_digits) >= 3:
+            raw_id_text = f"{p.stem} {p.parent.name if p.parent != root else ''}".translate(_AR_TO_EN_DIGITS)
+            digit_groups = re.findall(r"\d+", raw_id_text)
+            if bn_digits in digit_groups:
+                best = max(best, 0.98)
+            elif bn_digits in "".join(digit_groups):
+                best = max(best, 0.92)
+
+        if best >= threshold:
+            results.append((best, p))
+
+    results.sort(key=lambda item: (-item[0], item[1].name.casefold()))
+    return results[:max(1, limit)]

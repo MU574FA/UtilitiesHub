@@ -66,7 +66,8 @@ class FieldForm(ttk.Frame):
     """One editable row per field. `candidates` fill the drop-down; `assign(key, text)` sets a value."""
 
     def __init__(self, parent: tk.Misc, app, specs: list[FieldSpec], values: dict[str, list[str]],
-                 on_change: Callable[[], None] | None = None, hide_unsearched: bool = False) -> None:
+                 on_change: Callable[[], None] | None = None, hide_unsearched: bool = False,
+                 ac_prefix: str = "field") -> None:
         super().__init__(parent)
         self.app, self.specs, self.on_change = app, [s for s in specs if s.enabled], on_change
         self.vars: dict[str, tk.StringVar] = {}
@@ -82,7 +83,7 @@ class FieldForm(ttk.Frame):
             var = tk.StringVar(value=join_values(values.get(s.key, []), s))
             box = ttk.Combobox(self, textvariable=var, values=values.get(s.key, []))
             box.grid(row=r, column=1, sticky="ew", pady=3)
-            autocomplete(box, f"field.{s.key}")
+            autocomplete(box, f"{ac_prefix}.{s.key}")
             var.trace_add("write", lambda *_: self._changed())
             self.vars[s.key], self.boxes[s.key], self.labels[s.key] = var, box, lbl
             if s.kind == "map":
