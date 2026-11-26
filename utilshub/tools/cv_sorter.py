@@ -388,8 +388,8 @@ class CvSorter(Tool):
             Opt(p + "dest_folder", "", "Output folder (save sorted CVs to)", "folder", section="Folders",
                 help="Base path, optionally with {placeholders}: e.g. C:/Archive/{interviewer}/{name}  "
                      "— empty = a 'Sorted' folder inside the watched folder"),
-            Opt(p + "extensions", DEFAULT_EXTS, "File types", "str", section="Folders", help="e.g. pdf, docx, jpg"),
-            Opt(p + "recursive", False, "Include sub-folders", "bool", section="Folders"),
+            Opt(p + "extensions", DEFAULT_EXTS, "File types", "str", section="Files", help="e.g. pdf, docx, jpg"),
+            Opt(p + "recursive", False, "Include sub-folders", "bool", section="Files"),
             Opt(p + "watch", False, "Watch the folder automatically", "bool", section="Automation",
                 help="New files are read as soon as they finish copying"),
             Opt(p + "process_existing", False, "Also process files already in the folder when watching starts", "bool",

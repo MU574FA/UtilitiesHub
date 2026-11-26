@@ -217,7 +217,7 @@ def shared_pages() -> list[Page]:
         Page("general", "General & window", "⚙", 10, "Window behaviour, startup and notifications.", opts=GENERAL, group="App"),
         Page("ui", "Appearance", "🎨", 11, "Theme, colours, fonts and density.", opts=APPEARANCE, group="App"),
         Page("folders", "Folders & paths", "📁", 13,
-             "Select and set the input and output folder for every feature in one place.",
+             "Manage all input/output folders, program paths, candidate sheets, and CSV log files in one place.",
              builder=_folders_builder, group="App"),
         Page("ai", "AI", "✨", 20, "Optional AI (Ollama, OpenAI-compatible APIs, Anthropic): read scans, fill fields, recognise documents. "
              "Choose per feature: Rules only, AI only, or one then the other.", opts=AI, builder=_ai_builder, group="Engines & AI"),

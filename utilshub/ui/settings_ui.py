@@ -8,6 +8,7 @@ from typing import Any
 
 from ..core.schema import Opt, Page
 from .editors import EDITORS
+from .folders_panel import build_folders_panel, feature_path_keys, feature_path_opts, is_managed_path_opt
 from .records import StringListEditor
 from .widgets import FolderEntry, ScrollFrame, Tooltip, confirm, error, info, style_text
 
@@ -323,8 +324,23 @@ class SettingsWindow(tk.Toplevel):
             self._collapsed.add(group_name)
         self._fill_nav(self._nav_pages)
 
-    def _page_opts(self, page: Page) -> list[Opt]:
+    def _raw_page_opts(self, page: Page) -> list[Opt]:
         return page.opts or self.app.settings.opts(f"{page.id}.")
+
+    def _moved_path_opts(self, page: Page) -> list[Opt]:
+        if page.id == "folders":
+            return []
+        return [o for o in self._raw_page_opts(page) if is_managed_path_opt(o)]
+
+    def _page_opts(self, page: Page) -> list[Opt]:
+        if page.id == "folders":
+            return []
+        return [o for o in self._raw_page_opts(page) if not is_managed_path_opt(o)]
+
+    def _search_opts(self, page: Page) -> list[Opt]:
+        if page.id == "folders":
+            return feature_path_opts(self.app)
+        return self._page_opts(page)
 
     def _search(self) -> None:
         q = self.search.get().strip().lower()
@@ -337,14 +353,14 @@ class SettingsWindow(tk.Toplevel):
             return
         hits = [p for p in self.pages
                 if q in (p.title + " " + p.description + " " + p.group).lower()
-                or any(q in (o.label + o.help + o.section).lower() for o in self._page_opts(p))]
+                or any(q in (o.label + o.help + o.section).lower() for o in self._search_opts(p))]
         self._fill_nav(hits)
         if hits:
             self.show(hits[0].id, query=q)
 
-    def show(self, page_id: str, force: bool = False, query: str = "") -> None:
+    def show(self, page_id: str, force: bool = False, query: str = "", folders_filter: str = "") -> None:
         page = next((p for p in self.pages if p.id == page_id), None)
-        if not page or (page_id == self.current and not force and not query):
+        if not page or (page_id == self.current and not force and not query and not folders_filter):
             return
         self.current = page_id
         grp = page.group or "Other"
@@ -360,23 +376,44 @@ class SettingsWindow(tk.Toplevel):
         self.desc_lbl.configure(text=page.description)
         for w in self.scroll.body.winfo_children():
             w.destroy()
-        opts = self._page_opts(page)
-        if query:
-            opts = [o for o in opts if query in (o.label + o.help + o.section).lower()] or opts
-        if opts:
-            OptionPage(self.scroll.body, self.app, opts, self.show_advanced.get()).pack(fill="x")
-        if page.builder:
-            page.builder(self.scroll.body, self.app)
+        if page.id == "folders":
+            initial_f = folders_filter
+            if not initial_f and query and query not in f"{page.title} {page.description} {page.group}".lower():
+                initial_f = query
+            build_folders_panel(self.scroll.body, self.app, initial_filter=initial_f)
+        else:
+            moved = self._moved_path_opts(page)
+            if moved:
+                banner = ttk.Frame(self.scroll.body, padding=(0, 4, 0, 6))
+                banner.pack(fill="x")
+                n_m = len(moved)
+                verb = "is" if n_m == 1 else "are"
+                plural = "" if n_m == 1 else "s"
+                ttk.Label(
+                    banner,
+                    text=f"📁 {n_m} folder & path setting{plural} for {page.title} {verb} in Folders & paths.",
+                    style="Muted.TLabel",
+                ).pack(side="left")
+                ttk.Button(
+                    banner,
+                    text="Open Folders & paths →",
+                    style="Tiny.TButton",
+                    command=lambda t=page.title: self.show("folders", force=True, folders_filter=t),
+                ).pack(side="right")
+            opts = self._page_opts(page)
+            if query:
+                opts = [o for o in opts if query in (o.label + o.help + o.section).lower()] or opts
+            if opts:
+                OptionPage(self.scroll.body, self.app, opts, self.show_advanced.get()).pack(fill="x")
+            if page.builder:
+                page.builder(self.scroll.body, self.app)
         self.scroll.bind_children()
         self.scroll.canvas.yview_moveto(0)
 
     def reset_page(self) -> None:
         page = next((p for p in self.pages if p.id == self.current), None)
         if page and confirm(self, f"Reset all '{page.title}' settings to their defaults?"):
-            keys = [o.key for o in self._page_opts(page)]
-            if page.id == "folders":
-                from .folders_panel import feature_path_keys
-                keys = feature_path_keys(self.app)
+            keys = feature_path_keys(self.app) if page.id == "folders" else [o.key for o in self._page_opts(page)]
             for key in keys:
                 self.app.settings.reset(key)
             self.show(self.current, force=True)
