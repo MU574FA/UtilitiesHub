@@ -770,7 +770,6 @@ def builtin_fields() -> list[FieldDef]:
                  description="Free text: shortcuts such as nr → No response."),
         FieldDef("visa.log_note", "Contact log: note", visa, mode="text", shortcuts=dict(NOTE_SHORTCUTS)),
         FieldDef("docpacker.name", "Cover page: full name", dp),
-        FieldDef("docpacker.surname", "Cover page: surname", dp),
         FieldDef("docpacker.phone", "Cover page: phone / WhatsApp", dp, sensitive=True, default_enabled=False),
         FieldDef("workflows.name", "Workflow: name", "Workflows"),
         FieldDef("workflows.description", "Workflow: what it is for", "Workflows", mode="text"),

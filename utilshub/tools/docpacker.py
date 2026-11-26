@@ -16,7 +16,7 @@ from ..core.docpack_util import compress_at_least, custom_keys, draw_cover, page
 from ..core.dates import parse_any_date
 from ..core.doctypes import CheckContext, DocType, default_doctypes, run_check
 from ..core.fileops import resolve_target
-from ..core.mrz import extract_surname, looks_like_passport
+from ..core.mrz import looks_like_passport
 from ..core.pdfops import AssembleOptions, Piece, assemble
 from ..core.readers import DocInfo, ReadOptions, read_document, supported_extensions
 from ..core.schema import Opt
@@ -149,7 +149,7 @@ class DocPacker(Tool):
             Opt("docpacker.cover_checklist", True, "Show the checklist of documents", "bool", section="Cover page"),
             Opt("docpacker.cover_page_refs", True, "Show the page number of each document", "bool", section="Cover page"),
             Opt("docpacker.cover_missing", True, "Show missing required documents", "bool", section="Cover page"),
-            Opt("docpacker.ai_autofill", True, "After reading the files, fill empty cover boxes (name, surname, custom "
+            Opt("docpacker.ai_autofill", True, "After reading the files, fill empty cover boxes (name, custom "
                 "fields) with the AI", "bool", section="AI (Settings > AI turns it on and sets the modes)",
                 help="Only when AI is switched on and 'Cover-page values' is not 'Rules only'. Never overwrites what you typed; "
                      "values the AI filled are listed so you can check them, and you are asked again before building."),
@@ -167,7 +167,7 @@ class DocPacker(Tool):
         self._types: list[DocType] = []
         self._load_types()
         self.settings.subscribe("docpacker.doctypes", lambda k, v: self._types_changed())
-        self.name_var, self.surname_var, self.join_var = tk.StringVar(), tk.StringVar(), tk.StringVar()
+        self.name_var, self.join_var = tk.StringVar(), tk.StringVar()
         self.phone_var = tk.StringVar()
         self.wa_note_var = tk.StringVar(value="")
         self.wa_filled: dict[str, str] = {}                     # box key -> value taken from WhatsApp (until you edit it)
@@ -207,13 +207,13 @@ class DocPacker(Tool):
         clr.pack(side="right")
         Tooltip(clr, "Empty the list and all boxes, and delete the files of the imported folder")
 
-        # -- the candidate's boxes (name, surname, joining date, phone + your custom fields) ---------
+        # -- the candidate's boxes (name, joining date, phone + your custom fields) ---------
         self.custom_vars: dict[str, tk.StringVar] = {}
         self.custom_host = ttk.LabelFrame(parent, text="Candidate", padding=(8, 3, 8, 4))
         self.custom_host.pack(fill="x", pady=(4, 0))
         self._build_custom()
         self.settings.subscribe("docpacker.custom_fields", lambda k, v: self._build_custom())
-        for var in (self.name_var, self.surname_var, self.join_var):
+        for var in (self.name_var, self.join_var):
             var.trace_add("write", lambda *_: self._ctx_changed())
 
         bot = ttk.Frame(parent)
@@ -301,7 +301,7 @@ class DocPacker(Tool):
     FIELD_COLUMNS = 4
 
     def _build_custom(self) -> None:
-        """One tidy grid: name, surname, joining date, phone, then your custom fields (label above each box).
+        """One tidy grid: name, joining date, phone, then your custom fields (label above each box).
         Typed values survive a rebuild."""
         if not hasattr(self, "custom_host") or not self.custom_host.winfo_exists():
             return
@@ -309,12 +309,8 @@ class DocPacker(Tool):
         for w in self.custom_host.winfo_children():
             w.destroy()
         self.custom_vars = {}
-        cols = self.FIELD_COLUMNS
-        for c in range(cols):
-            self.custom_host.columnconfigure(c, weight=1, uniform="fld")
         cells: list[tuple[str, tk.StringVar, str, str]] = [        # label, variable, autocomplete id, tooltip
             ("Full name", self.name_var, "docpacker.name", "Placeholder: {name}"),
-            ("Surname", self.surname_var, "docpacker.surname", "Placeholder: {surname}"),
             ("Joining date (YYYY-MM-DD)", self.join_var, "", "Placeholder: {joining}"),
             ("Phone", self.phone_var, "docpacker.phone", "Placeholder: {phone}")]
         keys = custom_keys(self._custom_labels())
@@ -323,6 +319,9 @@ class DocPacker(Tool):
             self.custom_vars[label] = var
             var.trace_add("write", lambda *_: self._ai_prune())
             cells.append((label, var, f"docpacker.custom.{slugify(label)}", f"Placeholder: {{{key}}}"))
+        cols = min(self.FIELD_COLUMNS, max(1, len(cells)))
+        for c in range(self.FIELD_COLUMNS):
+            self.custom_host.columnconfigure(c, weight=1 if c < cols else 0, uniform="fld" if c < cols else "")
         for n, (label, var, ac_id, tip) in enumerate(cells):
             r, c = divmod(n, cols)
             cell = ttk.Frame(self.custom_host)
@@ -344,7 +343,7 @@ class DocPacker(Tool):
     def values(self) -> dict[str, str]:
         """Placeholder values for the cover, the file name and the folders."""
         name = self.name_var.get().strip()
-        out = {"name": name, "surname": self.surname_var.get().strip() or (name.split()[-1] if name else ""),
+        out = {"name": name, "surname": name.split()[-1] if name else "",
                "joining": self.join_var.get().strip(), "phone": self.phone_var.get().strip(),
                "date": dt.date.today().isoformat()}
         for label, key in custom_keys(self._custom_labels()).items():
@@ -372,7 +371,7 @@ class DocPacker(Tool):
 
     def _context(self) -> CheckContext:
         name = self.name_var.get().strip()
-        surname = self.surname_var.get().strip() or (name.split()[-1] if name else "")
+        surname = name.split()[-1] if name else ""
         joining = parse_any_date(self.join_var.get()) if self.join_var.get().strip() else None
         return CheckContext(name=name, surname=surname, joining=joining, fuzzy_name=self.get("fuzzy_names"),
                             sample_terms=list(self.get("sample_terms") or []), datecheck=self.get("date_checks"),
@@ -420,8 +419,6 @@ class DocPacker(Tool):
     def _var_for(self, key: str) -> tk.StringVar | None:
         if key == "name":
             return self.name_var
-        if key == "surname":
-            return self.surname_var
         if key == "joining":
             return self.join_var
         if key == "phone":
@@ -442,14 +439,14 @@ class DocPacker(Tool):
         self._ai_note()
 
     def _ai_note(self) -> None:
-        names = {"name": "Full name", "surname": "Surname"}
+        names = {"name": "Full name"}
         for label, k in custom_keys(self._custom_labels()).items():
             names[k] = label
         self.ai_note_var.set("✨ Filled by the AI - please check: " + ", ".join(
             f"{names.get(k, k)} = {v}" for k, v in self.ai_filled.items()) if self.ai_filled else "")
 
     def autofill_cover(self, auto: bool = False) -> None:
-        """Fill EMPTY cover boxes from the documents (name, surname, custom fields) - modes: Settings > AI > cover values."""
+        """Fill EMPTY cover boxes from the documents (name, custom fields) - modes: Settings > AI > cover values."""
         ai = self.ai_ctx()
         mode = ai.mode("cover")
         if not ai.enabled or mode == "rules":
@@ -470,8 +467,6 @@ class DocPacker(Tool):
         asks: list[FieldAsk] = []
         if not self.name_var.get().strip():
             asks.append(FieldAsk("name", "Full name of the applicant (the person the documents are about)"))
-        if not self.surname_var.get().strip():
-            asks.append(FieldAsk("surname", "Surname / family name of the applicant"))
         for label, key in custom_keys(self._custom_labels()).items():
             var = self.custom_vars.get(label)
             if var is not None and not var.get().strip():
@@ -481,11 +476,6 @@ class DocPacker(Tool):
                 info_box(self.frame, "All cover boxes already have a value - nothing to fill.")
             return
         rules_values = {"name": self._folder_name_guess(next(iter(self.entries), ""))}
-        for _n, text, is_pp in docs:                                  # the classic way: surname from the passport MRZ
-            sn = extract_surname(text)[0] if is_pp else ""
-            if sn:
-                rules_values["surname"] = sn.title()
-                break
         require = self.settings.get_bool("ai.require_grounding", True)
         pairs = [(n, t) for n, t, _pp in sorted(docs, key=lambda d: not d[2])]        # passports first
 
@@ -633,7 +623,7 @@ class DocPacker(Tool):
 
     def wa_field_choices(self) -> list[tuple[str, str]]:
         """The boxes a WhatsApp message can fill."""
-        out = [("name", "Full name"), ("surname", "Surname"), ("joining", "Joining date"), ("phone", "Phone")]
+        out = [("name", "Full name"), ("joining", "Joining date"), ("phone", "Phone")]
         return out + [(k, label) for label, k in custom_keys(self._custom_labels()).items()]
 
     def wa_current(self, key: str) -> str:
@@ -725,7 +715,7 @@ class DocPacker(Tool):
         self._wa_note()
 
     def _wa_note(self) -> None:
-        names = {"name": "Full name", "surname": "Surname", "joining": "Joining date", "phone": "Phone"}
+        names = {"name": "Full name", "joining": "Joining date", "phone": "Phone"}
         for label, k in custom_keys(self._custom_labels()).items():
             names[k] = label
         self.wa_note_var.set("💬 Taken from WhatsApp - please check: " + ", ".join(
@@ -1004,7 +994,7 @@ class DocPacker(Tool):
         return True
 
     def _reset_fields(self) -> None:
-        for var in (self.name_var, self.surname_var, self.join_var, self.phone_var, *self.custom_vars.values()):
+        for var in (self.name_var, self.join_var, self.phone_var, *self.custom_vars.values()):
             var.set("")
         self.ai_filled.clear()
         self.wa_filled.clear()
@@ -1013,7 +1003,7 @@ class DocPacker(Tool):
 
     def clear(self) -> None:
         files, skipped = self._files_to_delete()
-        has_fields = any(v.get().strip() for v in (self.name_var, self.surname_var, self.join_var, self.phone_var,
+        has_fields = any(v.get().strip() for v in (self.name_var, self.join_var, self.phone_var,
                                                    *self.custom_vars.values()))
         if not (self.entries or files or has_fields):
             return
