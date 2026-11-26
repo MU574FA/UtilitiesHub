@@ -49,34 +49,34 @@ class PassportTool(Tool):
         bar = ttk.Frame(parent)
         bar.pack(fill="x")
         ttk.Button(bar, text="Add passports…  (Ctrl+O)", command=self.pick_files).pack(side="left")
-        ttk.Button(bar, text="Clear", command=self.clear).pack(side="left", padx=6)
+        ttk.Button(bar, text="Clear", command=self.clear).pack(side="left", padx=4)
         ttk.Button(bar, text="Add to file…", command=self.add_to_file).pack(side="right")
-        ttk.Button(bar, text="Copy table", command=lambda: self.table.copy_selected(all_rows=True)).pack(side="right", padx=6)
-        self.summary = ttk.Label(parent, style="Muted.TLabel", text="Add passport scans or photos .")
-        self.summary.pack(anchor="w", pady=(4, 0))
-        self.table = DataTable(parent, [("file", "File", 200), ("surname", "Surname", 120), ("given", "Given names", 140),
-                                        ("number", "Passport no", 90), ("country", "Nat.", 45), ("dob", "Born", 85),
-                                        ("sex", "Sex", 35), ("expiry", "Expiry", 85), ("days_left", "Days left", 70, "e"),
-                                        ("status", "Expiry status", 95), ("mrz", "MRZ", 120), ("issues", "Issues", 260)],
-                               height=9, stretch="issues", searchable=True, on_select=lambda ids: self._show_text())
-        self.table.pack(fill="both", expand=True, pady=6)
+        ttk.Button(bar, text="Copy table", command=lambda: self.table.copy_selected(all_rows=True)).pack(side="right", padx=4)
+        self.summary = ttk.Label(parent, style="Muted.TLabel", text="Add passport scans or photos.")
+        self.summary.pack(anchor="w", pady=(3, 0))
+        self.table = DataTable(parent, [("file", "File", 150), ("surname", "Surname", 100), ("given", "Given names", 110),
+                                        ("number", "Passport no", 85), ("country", "Nat.", 40), ("dob", "Born", 80),
+                                        ("sex", "Sex", 32), ("expiry", "Expiry", 80), ("days_left", "Days", 55, "e"),
+                                        ("status", "Status", 85), ("mrz", "MRZ", 100), ("issues", "Issues", 180)],
+                               height=7, stretch="issues", searchable=True, on_select=lambda ids: self._show_text())
+        self.table.pack(fill="both", expand=True, pady=(4, 4))
         self.table.tag_colors(valid="ok", expired="err", soon="warn", bad="err")
 
         lower = ttk.PanedWindow(parent, orient="horizontal")
-        lower.pack(fill="both", expand=True, pady=(8, 0))
-        left = ttk.LabelFrame(lower, text="Paste MRZ text to check it (2 lines of 44 characters)", padding=6)
+        lower.pack(fill="both", expand=True, pady=(4, 0))
+        left = ttk.LabelFrame(lower, text="Paste MRZ text (2 lines × 44 chars)", padding=(6, 4))
         lower.add(left, weight=1)
-        self.paste = tk.Text(left, height=5, wrap="none")
+        self.paste = tk.Text(left, height=4, wrap="none")
         self.paste.pack(fill="x")
         style_text(self.frame, self.paste)
         autocomplete(self.paste, "passport.mrz")
         row = ttk.Frame(left)
-        row.pack(fill="x", pady=4)
+        row.pack(fill="x", pady=(4, 0))
         ttk.Button(row, text="Check MRZ  (F5)", style="Accent.TButton", command=self.check_pasted).pack(side="left")
-        ttk.Button(row, text="Paste from clipboard", command=self.paste_clip).pack(side="left", padx=6)
-        right = ttk.LabelFrame(lower, text="Details", padding=6)
+        ttk.Button(row, text="Paste from clipboard", command=self.paste_clip).pack(side="left", padx=4)
+        right = ttk.LabelFrame(lower, text="Details", padding=(6, 4))
         lower.add(right, weight=1)
-        self.detail = tk.Text(right, height=8, wrap="word")
+        self.detail = tk.Text(right, height=6, wrap="word")
         self.detail.pack(fill="both", expand=True)
         style_text(self.frame, self.detail)
         for iid, rec in self.rows.items():

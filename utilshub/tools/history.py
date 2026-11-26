@@ -58,7 +58,7 @@ class HistoryTool(Tool):
         self.count.pack(side="right")
         cols = ("time", "tool", "action", "src", "dest", "state")
         self.tree = ttk.Treeview(jf, columns=cols, show="headings", selectmode="extended")
-        for c, w in zip(cols, (140, 90, 70, 300, 300, 80)):
+        for c, w in zip(cols, (120, 85, 65, 220, 220, 75)):
             self.tree.heading(c, text=c.title())
             self.tree.column(c, width=w, anchor="w")
         sb = ttk.Scrollbar(jf, command=self.tree.yview)

@@ -21,7 +21,7 @@ def _all_sorted_pages():
 
 def test_settings_pages_have_unique_orders_and_expected_groups():
     pages = _all_sorted_pages()
-    assert len(pages) == 24
+    assert len(pages) == 25
     orders = [p.order for p in pages]
     assert len(orders) == len(set(orders)), f"Duplicate page orders: {orders}"
     assert all(p.group for p in pages), [p.id for p in pages if not p.group]
@@ -41,7 +41,7 @@ def test_settings_pages_have_unique_orders_and_expected_groups():
     assert by_group["Engines & AI"] == ["ai", "ocr", "match", "preview", "autocomplete"]
     assert by_group["Documents & files"] == ["visa", "cv_sorter", "docpacker", "file_picker", "pdf_desk"]
     assert by_group["Clean-up"] == ["duplicates", "scan_cleaner"]
-    assert by_group["Extract"] == ["screenshot", "ocr_match", "passport", "similarity_search"]
+    assert by_group["Extract"] == ["screenshot", "ocr_match", "passport", "similarity_search", "badge_extractor"]
     assert by_group["Match & Sync"] == ["name_matcher", "sheet_sync"]
     assert by_group["Automation"] == ["auto", "workflows"]
 
@@ -99,7 +99,7 @@ sw = SettingsWindow(app, "general")
 assert list(sw._group_buttons) == [
     "App", "Engines & AI", "Documents & files", "Clean-up", "Extract", "Match & Sync", "Automation"
 ]
-assert len(sw._nav_buttons) == 24
+assert len(sw._nav_buttons) == 25
 assert sw._nav_buttons["general"]._kw["style"] == "SideItemSel.TButton"
 assert sw._nav_buttons["ui"]._kw["style"] == "SideItem.TButton"
 assert sw.group_lbl._kw["text"] == "APP"
@@ -107,8 +107,8 @@ assert sw.group_lbl._kw["text"] == "APP"
 # Collapse Extract group
 sw._toggle_group("Extract")
 assert "Extract" in sw._collapsed
-assert "(4)" in sw._group_buttons["Extract"]._kw["text"]
-for pid in ("screenshot", "ocr_match", "passport", "similarity_search"):
+assert "(5)" in sw._group_buttons["Extract"]._kw["text"]
+for pid in ("screenshot", "ocr_match", "passport", "similarity_search", "badge_extractor"):
     assert pid not in sw._nav_buttons
 
 # Navigating to a page inside a collapsed group auto-expands it
@@ -124,7 +124,7 @@ assert sw.current == "duplicates"
 
 # Clearing search restores all pages and preserves highlight
 sw.search.set("")
-assert len(sw._nav_pages) == 24
+assert len(sw._nav_pages) == 25
 assert sw._nav_buttons[sw.current]._kw["style"] == "SideItemSel.TButton"
 
 print("SETTINGS_NAV_OK")

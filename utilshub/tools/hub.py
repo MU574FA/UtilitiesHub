@@ -129,7 +129,7 @@ class HubTool(Tool):
 
     def _build_filebar(self, parent: ttk.Frame) -> None:
         bar = ttk.Frame(parent)
-        bar.pack(fill="x", pady=(0, 6))
+        bar.pack(fill="x", pady=(0, 4))
         self._files_lbl = ttk.Label(bar, text="", style="Muted.TLabel")
         self._files_lbl.pack(side="left")
         ttk.Button(bar, text="Clear", style="Tiny.TButton", command=self.clear_files).pack(side="right")
@@ -138,7 +138,7 @@ class HubTool(Tool):
                            command=lambda i=s.id: self.deliver(i, self.shared))
             b.pack(side="right", padx=2)
             self._send_buttons.append(b)
-        ttk.Label(bar, text="Send these files to:", style="Muted.TLabel").pack(side="right", padx=(0, 6))
+        ttk.Label(bar, text="Send files:", style="Muted.TLabel").pack(side="right", padx=(0, 4))
         self._refresh_filebar()
 
     def _refresh_filebar(self) -> None:
@@ -149,7 +149,7 @@ class HubTool(Tool):
             first = self.shared[0].replace("\\", "/").rsplit("/", 1)[-1]
             text = f"{n} file(s) ready: {first}" + (f" and {n - 1} more" if n > 1 else "")
         else:
-            text = "Add files in a tab - they stay available for every tab."
+            text = "Add files in any tab to share across tabs."
         self._files_lbl.configure(text=text)
         for b in self._send_buttons:
             b.configure(state="normal" if n else "disabled")

@@ -258,14 +258,14 @@ class BadgeExtractor(Tool):
         self.table = DataTable(
             queue_frame,
             [
-                ("status", "Status", 76),
-                ("en_name", "English Name", 115),
-                ("ar_name", "Arabic Name", 110),
-                ("badge_no", "Badge #", 62),
-                ("matches", "Match", 90),
-                ("file", "File", 110),
+                ("status", "Status", 68),
+                ("en_name", "English Name", 110),
+                ("ar_name", "Arabic Name", 100),
+                ("badge_no", "Badge #", 58),
+                ("matches", "Match", 78),
+                ("file", "File", 96),
             ],
-            height=6,
+            height=4,
             stretch="en_name",
             searchable=True,
             on_select=lambda ids: self._on_queue_select(ids),
@@ -344,8 +344,8 @@ class BadgeExtractor(Tool):
         ttk.Separator(right, orient="horizontal").pack(side="bottom", fill="x", pady=(6, 2))
 
         # Review & Edit Card (spacious, cleanly aligned, uncrowded)
-        form_box = ttk.LabelFrame(right, text="Review & Edit", padding=(10, 8))
-        form_box.pack(fill="x", pady=(0, 6))
+        form_box = ttk.LabelFrame(right, text="Review & Edit", padding=(8, 5))
+        form_box.pack(fill="x", pady=(0, 4))
         form_box.columnconfigure(1, weight=1)
 
         self.ar_var = tk.StringVar()
@@ -453,12 +453,16 @@ class BadgeExtractor(Tool):
         sb_cb.pack(side="left")
         sb_cb.bind("<<ComboboxSelected>>", lambda _e: (self.put("search_by", self.search_by_var.get()), self.check_matches_current()))
 
-        ttk.Button(mbar, text="🔍 Check", style="Tiny.TButton", command=self.check_matches_current).pack(side="left", padx=(6, 0))
-        ttk.Button(mbar, text="👤 Details (Ctrl+K)", style="Tiny.TButton", command=self.show_candidate_info).pack(side="left", padx=(4, 0))
+        ttk.Button(mbar, text="🔍 Check", style="Tiny.TButton", command=self.check_matches_current).pack(side="left", padx=(4, 0))
+        det_b = ttk.Button(mbar, text="👤 Details", style="Tiny.TButton", command=self.show_candidate_info)
+        det_b.pack(side="left", padx=(3, 0))
+        Tooltip(det_b, "Candidate Details (Ctrl+K)")
         self.open_cv_btn = ttk.Button(mbar, text="📄 Open CV", style="Tiny.TButton", command=self.open_candidate_cv)
-        self.open_cv_btn.pack(side="left", padx=(4, 0))
+        self.open_cv_btn.pack(side="left", padx=(3, 0))
         Tooltip(self.open_cv_btn, "Find and open the matching CV from your CVs folder")
-        ttk.Button(mbar, text="✔ Use Selected", style="Tiny.TButton", command=self.apply_selected_match).pack(side="right")
+        use_b = ttk.Button(mbar, text="✔ Use", style="Tiny.TButton", command=self.apply_selected_match)
+        use_b.pack(side="right")
+        Tooltip(use_b, "Apply selected candidate name")
 
         self.match_lbl = ttk.Label(self._match_tab, text="Choose an Excel sheet to check candidate similarity.", style="Muted.TLabel")
         self.match_lbl.pack(anchor="w", pady=(0, 4))
@@ -492,7 +496,7 @@ class BadgeExtractor(Tool):
         ttk.Label(self._raw_tab, text="Select any text and right-click to assign it to a field.", style="Muted.TLabel").pack(anchor="w", pady=(0, 4))
         raw_host = ttk.Frame(self._raw_tab)
         raw_host.pack(fill="both", expand=True)
-        self.raw_text = tk.Text(raw_host, height=5, wrap="word")
+        self.raw_text = tk.Text(raw_host, height=4, wrap="word")
         r_ys = ttk.Scrollbar(raw_host, orient="vertical", command=self.raw_text.yview)
         self.raw_text.configure(yscrollcommand=r_ys.set)
         r_ys.pack(side="right", fill="y")

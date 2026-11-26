@@ -194,14 +194,14 @@ class DocPacker(Tool):
                                ("Add folder…", self.pick_folder, "Add every document in a folder"),
                                ("💬 WhatsApp ZIP…", self.open_whatsapp, "Take documents (and the name / phone) from a WhatsApp export")):
             b = ttk.Button(bar, text=text, command=cmd)
-            b.pack(side="left", padx=(0, 4))
+            b.pack(side="left", padx=(0, 3))
             Tooltip(b, tip)
-        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8, pady=2)
-        for text, cmd, tip in (("✨ Fill from documents", self.autofill_cover, "Fill the empty boxes from the documents"),
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=5, pady=2)
+        for text, cmd, tip in (("✨ Fill fields", self.autofill_cover, "Fill the empty boxes from the documents"),
                                ("👤 Candidate info", self.show_candidate_info, "Show this candidate's row from your sheet"),
                                ("Re-check", self.recheck, "Run all checks again")):
             b = ttk.Button(bar, text=text, command=cmd)
-            b.pack(side="left", padx=(0, 4))
+            b.pack(side="left", padx=(0, 3))
             Tooltip(b, tip)
         clr = ttk.Button(bar, text="🗑 Clear", style="Danger.TButton", command=self.clear)
         clr.pack(side="right")
@@ -209,29 +209,29 @@ class DocPacker(Tool):
 
         # -- the candidate's boxes (name, surname, joining date, phone + your custom fields) ---------
         self.custom_vars: dict[str, tk.StringVar] = {}
-        self.custom_host = ttk.LabelFrame(parent, text="Candidate", padding=(8, 4, 8, 6))
-        self.custom_host.pack(fill="x", pady=(8, 0))
+        self.custom_host = ttk.LabelFrame(parent, text="Candidate", padding=(8, 3, 8, 4))
+        self.custom_host.pack(fill="x", pady=(4, 0))
         self._build_custom()
         self.settings.subscribe("docpacker.custom_fields", lambda k, v: self._build_custom())
         for var in (self.name_var, self.surname_var, self.join_var):
             var.trace_add("write", lambda *_: self._ctx_changed())
 
         bot = ttk.Frame(parent)
-        bot.pack(side="bottom", fill="x", pady=(6, 0))
+        bot.pack(side="bottom", fill="x", pady=(4, 0))
         ttk.Button(bot, text="Build package  (Ctrl+B)", style="Accent.TButton", command=self.build_package).pack(side="right")
-        ttk.Button(bot, text="Report…", command=self.show_report).pack(side="right", padx=6)
+        ttk.Button(bot, text="Report…", command=self.show_report).pack(side="right", padx=4)
         self.open_btn = ttk.Button(bot, text="Open last package", command=lambda: self.last_output and open_path(self.last_output))
         self.open_btn.pack(side="right")
-        self.summary = ttk.Label(parent, textvariable=self.status_var, wraplength=1000, justify="left")
+        self.summary = ttk.Label(parent, textvariable=self.status_var, wraplength=680, justify="left")
         self.summary.pack(side="bottom", fill="x")
-        ttk.Label(parent, textvariable=self.ai_note_var, style="Muted.TLabel", wraplength=1000,
+        ttk.Label(parent, textvariable=self.ai_note_var, style="Muted.TLabel", wraplength=680,
                   justify="left").pack(side="bottom", fill="x")
-        ttk.Label(parent, textvariable=self.wa_note_var, style="Muted.TLabel", wraplength=1000,
+        ttk.Label(parent, textvariable=self.wa_note_var, style="Muted.TLabel", wraplength=680,
                   justify="left").pack(side="bottom", fill="x")
         self.settings.subscribe("ai.", lambda k, v: self._ai_settings_changed())
 
         paned = ttk.PanedWindow(parent, orient="horizontal")
-        paned.pack(fill="both", expand=True, pady=8)
+        paned.pack(fill="both", expand=True, pady=(4, 4))
         left = ttk.Frame(paned)
         paned.add(left, weight=3)
         # checks panel (left, collapsible) | documents list (right)
@@ -241,24 +241,24 @@ class DocPacker(Tool):
         self._checks_btn = ttk.Button(hdr, text="◀ Hide checks", style="Tiny.TButton", command=self._toggle_checks_panel)
         self._checks_btn.pack(side="left")
         inner = ttk.Frame(left)
-        inner.pack(fill="both", expand=True, pady=(4, 0))
+        inner.pack(fill="both", expand=True, pady=(3, 0))
         self._inner = inner
         inner.rowconfigure(0, weight=1)
-        inner.columnconfigure(0, weight=0, minsize=330)
+        inner.columnconfigure(0, weight=0, minsize=185)
         inner.columnconfigure(1, weight=1)
-        self._checks_frame = ttk.LabelFrame(inner, text="Checks of the selected file (double-click a ☐ to confirm)", padding=4)
-        self._checks_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        self._checks_frame = ttk.LabelFrame(inner, text="Checks (double-click ☐)", padding=4)
+        self._checks_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         tbl_host = ttk.Frame(inner)
         tbl_host.grid(row=0, column=1, sticky="nsew")
-        self.table = DataTable(tbl_host, [("file", "File", 220), ("type", "Document", 190), ("score", "Match", 55, "e"),
-                                          ("status", "Checks", 90), ("pages", "Pages", 50, "e")], height=8,
+        self.table = DataTable(tbl_host, [("file", "File", 115), ("type", "Document", 100), ("score", "Match", 44, "e"),
+                                          ("status", "Checks", 65), ("pages", "Pg", 32, "e")], height=8,
                                on_select=self._selected, on_double=lambda i: self.edit_pages(i))
         self.table.tag_colors(fail="err", warn="warn", ok="ok", manual="muted", busy="muted")
         self.table.pack(fill="both", expand=True)
         self.table.tree.bind("<Button-3>", self._menu, add="+")
         self.table.tree.bind("<Delete>", lambda e: self.remove_selected())
-        self.checks = ttk.Treeview(self._checks_frame, columns=("s", "label", "detail"), show="headings", height=10)
-        for k, h, w in (("s", "", 28), ("label", "Check", 130), ("detail", "Details", 150)):
+        self.checks = ttk.Treeview(self._checks_frame, columns=("s", "label", "detail"), show="headings", height=9)
+        for k, h, w in (("s", "", 22), ("label", "Check", 85), ("detail", "Details", 78)):
             self.checks.heading(k, text=h)
             self.checks.column(k, width=w, stretch=(k == "detail"))
         self.checks.pack(fill="both", expand=True)
@@ -268,12 +268,13 @@ class DocPacker(Tool):
         right = ttk.Frame(paned)
         paned.add(right, weight=2)
         bar = ttk.Frame(right)
-        bar.pack(fill="x")
+        bar.pack(fill="x", pady=(0, 2))
         ttk.Button(bar, text="Pages…", command=self.edit_pages, style="Tiny.TButton").pack(side="left")
-        ttk.Button(bar, text="Split into documents…", style="Tiny.TButton",
-                   command=lambda: self.table.selection() and self.split_dialog(self.table.selection()[0])).pack(side="left", padx=4)
-        ttk.Label(bar, text="Rotate pages in the viewer; the package uses your rotation.", style="Muted.TLabel").pack(
-            side="left", padx=8)
+        ttk.Button(bar, text="Split…", style="Tiny.TButton",
+                   command=lambda: self.table.selection() and self.split_dialog(self.table.selection()[0])).pack(side="left", padx=3)
+        rot_hint = ttk.Label(bar, text="Rotations apply on build", style="Muted.TLabel")
+        rot_hint.pack(side="right")
+        Tooltip(rot_hint, "Rotate pages in the viewer; the package uses your rotation.")
         self.viewer = PageViewer(right, self.app)
         self.viewer.pack(fill="both", expand=True)
         self.viewer.on_rotate = self._rotated
@@ -284,7 +285,7 @@ class DocPacker(Tool):
             self._checks_frame.grid_remove(); self._inner.columnconfigure(0, minsize=0)
             self._checks_btn.configure(text="▶ Show checks")
         else:
-            self._checks_frame.grid(); self._inner.columnconfigure(0, minsize=330)
+            self._checks_frame.grid(); self._inner.columnconfigure(0, minsize=185)
             self._checks_btn.configure(text="◀ Hide checks")
         self._checks_open = not self._checks_open
 

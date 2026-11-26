@@ -105,28 +105,34 @@ class DuplicateFinder(Tool):
         # --- sources
         ttk.Label(left, text="Search in", style="H3.TLabel").pack(anchor="w")
         box = ttk.Frame(left)
-        box.pack(fill="both", expand=True, pady=4)
-        self.src_list = tk.Listbox(box, width=30, height=10, selectmode="extended", activestyle="none")
+        box.pack(fill="both", expand=True, pady=(3, 4))
+        self.src_list = tk.Listbox(box, width=24, height=8, selectmode="extended", activestyle="none")
         sb = ttk.Scrollbar(box, command=self.src_list.yview)
         self.src_list.configure(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")
         self.src_list.pack(side="left", fill="both", expand=True)
         style_text(left, self.src_list)
-        bar = ttk.Frame(left)
-        bar.pack(fill="x")
-        ttk.Button(bar, text="Add folder…", style="Tiny.TButton", command=self.add_folder).pack(side="left")
-        ttk.Button(bar, text="Add files…", style="Tiny.TButton", command=self.add_files).pack(side="left", padx=4)
-        ttk.Button(bar, text="Remove", style="Tiny.TButton", command=self.remove_sources).pack(side="left")
-        ttk.Button(bar, text="Clear", style="Tiny.TButton", command=self.clear_sources).pack(side="left", padx=4)
-        self.src_lbl = ttk.Label(left, style="Muted.TLabel", wraplength=230, justify="left",
-                                 text="Add folders or files with the buttons above.")
-        self.src_lbl.pack(anchor="w", pady=(4, 0))
-        for text, key in (("Sub-folders too", "recursive"), ("Scan as soon as I add", "scan_on_drop")):
+        bar1 = ttk.Frame(left)
+        bar1.pack(fill="x")
+        b_df = ttk.Button(bar1, text="Folder…", style="Tiny.TButton", command=self.add_folder)
+        b_df.pack(side="left")
+        Tooltip(b_df, "Add folder to search")
+        b_dfi = ttk.Button(bar1, text="Files…", style="Tiny.TButton", command=self.add_files)
+        b_dfi.pack(side="left", padx=4)
+        Tooltip(b_dfi, "Add files to search")
+        bar2 = ttk.Frame(left)
+        bar2.pack(fill="x", pady=(3, 0))
+        ttk.Button(bar2, text="Remove", style="Tiny.TButton", command=self.remove_sources).pack(side="left")
+        ttk.Button(bar2, text="Clear", style="Tiny.TButton", command=self.clear_sources).pack(side="left", padx=4)
+        self.src_lbl = ttk.Label(left, style="Muted.TLabel", wraplength=200, justify="left",
+                                 text="Add folders or files above.")
+        self.src_lbl.pack(anchor="w", pady=(3, 0))
+        for text, key in (("Sub-folders", "recursive"), ("Scan on drop", "scan_on_drop")):
             ttk.Checkbutton(left, text=text, variable=var(key, tk.BooleanVar)).pack(anchor="w")
         row = ttk.Frame(left)
         row.pack(fill="x", pady=2)
-        ttk.Label(row, text="Extensions").pack(side="left")
-        ttk.Entry(row, width=14, textvariable=var("extensions")).pack(side="left", padx=4)
+        ttk.Label(row, text="Exts").pack(side="left")
+        ttk.Entry(row, width=12, textvariable=var("extensions")).pack(side="left", padx=4, fill="x", expand=True)
 
         # --- form
         form = ttk.Frame(right)
@@ -138,55 +144,64 @@ class DuplicateFinder(Tool):
         mv = var("mode")
         for value, label in MODES:
             rb = ttk.Radiobutton(r1, text=label, value=value, variable=mv)
-            rb.pack(side="left", padx=(8, 0))
+            rb.pack(side="left", padx=(6, 0))
             Tooltip(rb, MODE_HELP[value])
-        ttk.Label(r1, text="   Show from").pack(side="left")
-        ttk.Spinbox(r1, from_=30, to=100, width=4, textvariable=var("review", tk.IntVar)).pack(side="left", padx=2)
-        ttk.Label(r1, text="%   Confident from").pack(side="left")
-        ttk.Spinbox(r1, from_=50, to=100, width=4, textvariable=var("auto", tk.IntVar)).pack(side="left", padx=2)
-        ttk.Label(r1, text="%   Keep").pack(side="left")
+        ttk.Label(r1, text="Keep").pack(side="left", padx=(10, 2))
         kv = tk.StringVar(value=dict(sim.KEEP_RULES).get(self.get("keep"), sim.KEEP_RULES[0][1]))
-        kc = ttk.Combobox(r1, textvariable=kv, values=[l for _k, l in sim.KEEP_RULES], state="readonly", width=20)
-        kc.pack(side="left", padx=4)
+        kc = ttk.Combobox(r1, textvariable=kv, values=[l for _k, l in sim.KEEP_RULES], state="readonly", width=18)
+        kc.pack(side="left", padx=2)
         kc.bind("<<ComboboxSelected>>", lambda e: self.put("keep", next(k for k, l in sim.KEEP_RULES if l == kv.get())))
+
         r2 = ttk.Frame(form)
         r2.grid(row=1, column=0, columnspan=2, sticky="ew", pady=2)
-        ttk.Label(r2, text="Compare").pack(side="left")
-        for text, key in (("Document text", "use_text"), ("Pictures & scans", "use_images"), ("Strict check", "strict"),
-                          ("Turned scans", "rotation"), ("OCR scans (slow)", "ocr")):
-            ttk.Checkbutton(r2, text=text, variable=var(key, tk.BooleanVar)).pack(side="left", padx=(8, 0))
-        for i, (label, key, tipx) in enumerate((("Protect folder", "protect", "Files here are always kept, never removed."),
-                                                ("Move duplicates to", "dest", "Empty = '_duplicates' next to the first source."))):
-            ttk.Label(form, text=label).grid(row=2 + i, column=0, sticky="w", pady=2, padx=(0, 8))
+        ttk.Label(r2, text="Show ≥").pack(side="left")
+        ttk.Spinbox(r2, from_=30, to=100, width=4, textvariable=var("review", tk.IntVar)).pack(side="left", padx=2)
+        ttk.Label(r2, text="%  Confident ≥").pack(side="left")
+        ttk.Spinbox(r2, from_=50, to=100, width=4, textvariable=var("auto", tk.IntVar)).pack(side="left", padx=2)
+        ttk.Label(r2, text="%   Compare:").pack(side="left")
+        for text, key, tip_c in (("Text", "use_text", "Compare document text"),
+                                  ("Images", "use_images", "Compare pictures & scans"),
+                                  ("Strict", "strict", "Require strict match"),
+                                  ("Rotated", "rotation", "Also check turned scans"),
+                                  ("OCR", "ocr", "OCR scans (slower)")):
+            cb_c = ttk.Checkbutton(r2, text=text, variable=var(key, tk.BooleanVar))
+            cb_c.pack(side="left", padx=(4, 0))
+            Tooltip(cb_c, tip_c)
+
+        for i, (label, key, tipx) in enumerate((("Protect", "protect", "Files here are always kept, never removed."),
+                                                ("Move to", "dest", "Empty = '_duplicates' next to the first source."))):
+            ttk.Label(form, text=label).grid(row=2 + i, column=0, sticky="w", pady=2, padx=(0, 6))
             v = var(key)
-            fe = FolderEntry(form, v, "dir", open_button=True)
+            fe = FolderEntry(form, v, "dir", width=30, open_button=True)
             fe.grid(row=2 + i, column=1, sticky="ew", pady=2)
             self.sync_var(key, v)
             Tooltip(fe, tipx)
 
         # --- actions
         act = ttk.Frame(right)
-        act.pack(fill="x", pady=6)
+        act.pack(fill="x", pady=(4, 4))
         ttk.Button(act, text="🔍 Scan", style="Accent.TButton", command=self.run_scan).pack(side="left")
         self.apply_btn = ttk.Button(act, text="Move ticked", command=self.apply, state="disabled")
-        self.apply_btn.pack(side="left", padx=6)
+        self.apply_btn.pack(side="left", padx=4)
         ttk.Button(act, text="Tick confident", command=self.tick_confident).pack(side="left")
-        ttk.Button(act, text="Untick all", command=self.untick_all).pack(side="left", padx=6)
-        ttk.Button(act, text="↩ Undo last batch", command=self.undo_batch).pack(side="left")
+        ttk.Button(act, text="Untick all", command=self.untick_all).pack(side="left", padx=4)
+        undo_b = ttk.Button(act, text="↩ Undo", command=self.undo_batch)
+        undo_b.pack(side="left")
+        Tooltip(undo_b, "Undo last moved batch")
         ttk.Button(act, text="Report…", command=self.export_report).pack(side="right")
-        ttk.Button(act, text="Add to file…", command=self.add_to_file).pack(side="right", padx=6)
+        ttk.Button(act, text="Add to file…", command=self.add_to_file).pack(side="right", padx=4)
         self.summary = ttk.Label(right, style="Muted.TLabel")
         self.summary.pack(anchor="w")
 
         # --- results + preview
         self.vpane = ttk.PanedWindow(right, orient="vertical")
-        self.vpane.pack(fill="both", expand=True, pady=(4, 0))
+        self.vpane.pack(fill="both", expand=True, pady=(3, 0))
         top = ttk.Frame(self.vpane)
         self.vpane.add(top, weight=3)
-        self.table = DataTable(top, [("sel", "✔", 36, "center"), ("grp", "Group", 52, "center"), ("file", "File", 220),
-                                     ("match", "Match", 56, "e"), ("band", "How sure", 84), ("why", "Why", 230),
-                                     ("size", "Size", 70, "e"), ("mod", "Modified", 118), ("folder", "Folder", 260)],
-                               searchable=True, on_double=self.toggle_row, on_select=self._selected, stretch="folder")
+        self.table = DataTable(top, [("sel", "✔", 34, "center"), ("grp", "Grp", 44, "center"), ("file", "File", 170),
+                                     ("match", "Match", 52, "e"), ("band", "Confidence", 80), ("why", "Why", 170),
+                                     ("size", "Size", 65, "e"), ("mod", "Modified", 105), ("folder", "Folder", 180)],
+                               height=7, searchable=True, on_double=self.toggle_row, on_select=self._selected, stretch="folder")
         self.table.pack(fill="both", expand=True)
         self.table.tag_colors(keep="ok", maybe="warn", off="muted")
         m = self.table.menu

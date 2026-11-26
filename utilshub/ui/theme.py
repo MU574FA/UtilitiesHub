@@ -158,36 +158,42 @@ class ThemeManager:
         st.configure("SideTitle.TLabel", background=p["surface"], foreground=p["muted"], font=(family, size - 1, "bold"))
         st.configure("TLabelframe", background=p["bg"], bordercolor=p["line"], relief="solid", borderwidth=1)
         st.configure("TLabelframe.Label", background=p["bg"], foreground=p["muted"], font=bold)
-        st.configure("TButton", background=p["surface2"], foreground=p["fg"], bordercolor=p["line"], padding=(10, pad),
-                     relief="flat", borderwidth=1, focusthickness=1, focuscolor=acc)
+        st.configure("TButton", background=p["surface2"], foreground=p["fg"], bordercolor=p["line"],
+                     padding=(8, max(2, pad - 1)), width=0, relief="flat", borderwidth=1,
+                     focusthickness=1, focuscolor=acc)
         st.map("TButton", background=[("disabled", p["surface"]), ("pressed", p["line"]), ("active", p["hover"])],
                foreground=[("disabled", p["muted"])], bordercolor=[("focus", acc)])
-        st.configure("Accent.TButton", background=acc, foreground=p["accent_fg"], bordercolor=acc, font=bold)
+        st.configure("Accent.TButton", background=acc, foreground=p["accent_fg"], bordercolor=acc, font=bold, width=0)
         st.map("Accent.TButton", background=[("disabled", p["line"]), ("pressed", p["accent_hover"]), ("active", p["accent_hover"])],
                foreground=[("disabled", p["muted"])])
-        st.configure("Danger.TButton", background=p["err"], foreground="#ffffff", bordercolor=p["err"])
+        st.configure("Danger.TButton", background=p["err"], foreground="#ffffff", bordercolor=p["err"], width=0)
         st.map("Danger.TButton", background=[("active", _mix(p["err"], "#000000", .15))])
-        st.configure("Flat.TButton", background=p["bg"], bordercolor=p["bg"], padding=(8, pad))
+        st.configure("Flat.TButton", background=p["bg"], bordercolor=p["bg"], padding=(6, max(2, pad - 1)), width=0)
         st.map("Flat.TButton", background=[("active", p["hover"])])
-        st.configure("Tiny.TButton", padding=(4, 1))
-        st.configure("Side.TButton", background=p["surface"], bordercolor=p["surface"], anchor="w", padding=(12, pad + 3),
-                     font=base, relief="flat")
+        st.configure("Tiny.TButton", padding=(5, 1), width=0)
+        st.configure("TMenubutton", background=p["surface2"], foreground=p["fg"], bordercolor=p["line"],
+                     padding=(8, max(2, pad - 1)), width=0, relief="flat", borderwidth=1)
+        st.map("TMenubutton", background=[("disabled", p["surface"]), ("pressed", p["line"]), ("active", p["hover"])],
+               foreground=[("disabled", p["muted"])], bordercolor=[("focus", acc)])
+        st.configure("Tiny.TMenubutton", padding=(5, 1), width=0)
+        st.configure("Side.TButton", background=p["surface"], bordercolor=p["surface"], anchor="w", padding=(10, pad + 1),
+                     font=base, relief="flat", width=0)
         st.map("Side.TButton", background=[("active", p["hover"])])
         st.configure("SideSel.TButton", background=p["accent_soft"], foreground=acc, bordercolor=p["accent_soft"],
-                     anchor="w", padding=(12, pad + 3), font=bold)
+                     anchor="w", padding=(10, pad + 1), font=bold, width=0)
         st.map("SideSel.TButton", background=[("active", p["accent_soft"])])
         st.configure("SideGroup.TButton", background=p["surface"], foreground=p["muted"], bordercolor=p["surface"],
-                     anchor="w", padding=(10, pad), font=(family, max(8, size - 1), "bold"), relief="flat")
+                     anchor="w", padding=(10, pad), font=(family, max(8, size - 1), "bold"), relief="flat", width=0)
         st.map("SideGroup.TButton", background=[("active", p["hover"])], foreground=[("active", p["fg"])])
         st.configure("SideItem.TButton", background=p["surface"], foreground=p["fg"], bordercolor=p["surface"],
-                     anchor="w", padding=(22, pad + 1), font=base, relief="flat")
+                     anchor="w", padding=(20, pad), font=base, relief="flat", width=0)
         st.map("SideItem.TButton", background=[("active", p["hover"])])
         st.configure("SideItemSel.TButton", background=p["accent_soft"], foreground=acc, bordercolor=p["accent_soft"],
-                     anchor="w", padding=(22, pad + 1), font=bold, relief="flat")
+                     anchor="w", padding=(20, pad), font=bold, relief="flat", width=0)
         st.map("SideItemSel.TButton", background=[("active", p["accent_soft"])])
-        st.configure("TEntry", fieldbackground=p["input"], padding=(6, pad), bordercolor=p["line"])
+        st.configure("TEntry", fieldbackground=p["input"], padding=(5, max(2, pad - 1)), bordercolor=p["line"])
         st.map("TEntry", bordercolor=[("focus", acc)], fieldbackground=[("readonly", p["surface2"]), ("disabled", p["surface2"])])
-        st.configure("TCombobox", fieldbackground=p["input"], padding=(6, pad), arrowcolor=p["fg"], background=p["surface2"])
+        st.configure("TCombobox", fieldbackground=p["input"], padding=(5, max(2, pad - 1)), arrowcolor=p["fg"], background=p["surface2"])
         st.map("TCombobox", fieldbackground=[("readonly", p["input"])], bordercolor=[("focus", acc)],
                selectbackground=[("readonly", p["input"])], selectforeground=[("readonly", p["fg"])])
         root.option_add("*TCombobox*Listbox.background", p["input"])
@@ -198,14 +204,14 @@ class ThemeManager:
         root.option_add("*Menu.foreground", p["fg"])
         root.option_add("*Menu.activeBackground", acc)
         root.option_add("*Menu.activeForeground", p["accent_fg"])
-        st.configure("TSpinbox", fieldbackground=p["input"], padding=(6, pad), arrowcolor=p["fg"], background=p["surface2"])
+        st.configure("TSpinbox", fieldbackground=p["input"], padding=(5, max(2, pad - 1)), arrowcolor=p["fg"], background=p["surface2"])
         st.configure("TCheckbutton", background=p["bg"], indicatorbackground=p["input"], indicatorcolor=p["input"])
         st.map("TCheckbutton", indicatorcolor=[("selected", acc), ("pressed", acc)], background=[("active", p["bg"])])
         st.configure("Surface.TCheckbutton", background=p["surface"])
         st.configure("TRadiobutton", background=p["bg"], indicatorbackground=p["input"])
         st.map("TRadiobutton", indicatorcolor=[("selected", acc)], background=[("active", p["bg"])])
         st.configure("TNotebook", background=p["bg"], bordercolor=p["line"], tabmargins=(0, 2, 0, 0))
-        st.configure("TNotebook.Tab", background=p["surface2"], foreground=p["muted"], padding=(14, pad + 2), bordercolor=p["line"])
+        st.configure("TNotebook.Tab", background=p["surface2"], foreground=p["muted"], padding=(10, pad), bordercolor=p["line"])
         st.map("TNotebook.Tab", background=[("selected", p["surface"])], foreground=[("selected", acc)])
         st.configure("Treeview", background=p["input"], fieldbackground=p["input"], foreground=p["fg"], rowheight=rowh,
                      bordercolor=p["line"], borderwidth=1)

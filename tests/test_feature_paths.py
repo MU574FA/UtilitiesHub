@@ -133,7 +133,7 @@ from utilshub import app as appmod
 from utilshub.core.fileops import Journal
 from utilshub.core.settings import Settings
 from utilshub.options import all_shared_opts, shared_pages
-from utilshub.ui.folders_panel import build_folders_panel, feature_path_entries, feature_path_keys
+from utilshub.ui.folders_panel import build_folders_panel, feature_path_entries, feature_path_groups, feature_path_keys
 from utilshub.ui.settings_ui import OptionPage, SettingsWindow
 from utilshub.ui.widgets import FolderEntry
 import utilshub.ui.widgets as widgets_mod
@@ -191,8 +191,10 @@ assert "docpacker.input_folder" in keys and "docpacker.output_folder" in keys
 
 host = faketk.Widget(app.root)
 panel = build_folders_panel(host, app)
-frames = [c for c in panel.winfo_children() if "text" in getattr(c, "_kw", {})]
-assert len(frames) == len(entries), (len(frames), len(entries))
+groups = feature_path_groups(app)
+cards_host = panel.winfo_children()[1]
+frames = [c for c in cards_host.winfo_children() if "text" in getattr(c, "_kw", {})]
+assert len(frames) == len(groups), (len(frames), len(groups))
 
 # 2. SettingsWindow shows Folders & paths, searches by "input", and resets page keys
 sw = SettingsWindow(app, "folders")

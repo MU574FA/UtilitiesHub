@@ -8,7 +8,7 @@ from ..core.schema import Opt
 from ..core.sheets import SheetError, cell_text, write_csv, write_xlsx
 from ..core.syncing import SyncOptions, SyncPlan, apply_plan, build_plan, change_log_rows, shared_columns
 
-from ..ui.widgets import DataTable, error, info
+from ..ui.widgets import DataTable, Tooltip, error, info
 from .base import Command, Tool
 from .name_matcher import SheetPicker
 
@@ -64,46 +64,54 @@ class SheetSync(Tool):
         self.new.path.trace_add("write", lambda *_: self.put("new_path", self.new.path.get()))
 
         mid = ttk.Frame(parent)
-        mid.pack(fill="x", pady=6)
+        mid.pack(fill="x", pady=(4, 4))
         ttk.Label(mid, text="Key column").pack(side="left")
         self.key = tk.StringVar()
-        self.key_cb = ttk.Combobox(mid, textvariable=self.key, state="readonly", width=26)
+        self.key_cb = ttk.Combobox(mid, textvariable=self.key, state="readonly", width=20)
         self.key_cb.pack(side="left", padx=4)
-        ttk.Label(mid, text="Columns to update").pack(side="left", padx=(12, 4))
-        self.cols = tk.Listbox(mid, selectmode="multiple", height=4, exportselection=False, width=28)
+        ttk.Label(mid, text="Update cols").pack(side="left", padx=(8, 4))
+        self.cols = tk.Listbox(mid, selectmode="multiple", height=4, exportselection=False, width=22)
         self.app.theme.style_listbox(self.cols)
         self.cols.pack(side="left")
         cb = ttk.Frame(mid)
-        cb.pack(side="left", padx=8)
+        cb.pack(side="left", padx=4)
         ttk.Button(cb, text="All", style="Tiny.TButton", command=lambda: self.cols.selection_set(0, "end")).pack(fill="x")
         ttk.Button(cb, text="None", style="Tiny.TButton", command=lambda: self.cols.selection_clear(0, "end")).pack(fill="x", pady=2)
         self.flags: dict[str, tk.BooleanVar] = {}
         flagbox = ttk.Frame(mid)
-        flagbox.pack(side="left", padx=8)
-        for key, text in (("ignore_case", "Ignore case in keys"), ("add_new", "Add new rows"),
-                          ("skip_blank", "Keep old value if new is empty"), ("add_columns", "Add new columns"),
-                          ("keep_missing", "Keep rows missing from new file"),
-                          ("tag_missing", "  ↳ Tag missing rows in status column"),
-                          ("status_column", "Status column")):
+        flagbox.pack(side="left", padx=(6, 0))
+        opts_list = (
+            ("ignore_case", "Ignore case", "Ignore case in key matching"),
+            ("add_new", "Add new rows", "Add rows that exist only in the new file"),
+            ("skip_blank", "Keep old if blank", "Keep the old value when the new cell is empty"),
+            ("add_columns", "Add new columns", "Add columns that exist only in the new file"),
+            ("keep_missing", "Keep missing rows", "Keep rows that are not found in the new file"),
+            ("tag_missing", "↳ Tag missing", "Tag kept-missing rows in the status column"),
+            ("status_column", "Status column", "Add a Sync status column"),
+        )
+        for idx, (key, text, tip_s) in enumerate(opts_list):
             v = tk.BooleanVar(value=self.get(key))
             v.trace_add("write", lambda *_a, k=key, vv=v: self.put(k, vv.get()))
             self.flags[key] = v
-            ttk.Checkbutton(flagbox, text=text, variable=v).pack(anchor="w")
+            r_i, c_i = divmod(idx, 2)
+            chk = ttk.Checkbutton(flagbox, text=text, variable=v)
+            chk.grid(row=r_i, column=c_i, sticky="w", padx=(0, 8))
+            Tooltip(chk, tip_s)
 
         bar = ttk.Frame(parent)
-        bar.pack(fill="x", pady=4)
+        bar.pack(fill="x", pady=(2, 4))
         ttk.Button(bar, text="🔍 Preview changes", style="Accent.TButton", command=self.preview).pack(side="left")
-        self.apply_btn = ttk.Button(bar, text="Save updated file…", command=self.apply, state="disabled")
-        self.apply_btn.pack(side="left", padx=6)
+        self.apply_btn = ttk.Button(bar, text="Save updated…", command=self.apply, state="disabled")
+        self.apply_btn.pack(side="left", padx=4)
         ttk.Button(bar, text="Accept all", style="Tiny.TButton", command=lambda: self.set_all(True)).pack(side="left")
         ttk.Button(bar, text="Reject all", style="Tiny.TButton", command=lambda: self.set_all(False)).pack(side="left", padx=2)
         ttk.Button(bar, text="Change log…", command=self.export_log).pack(side="right")
-        ttk.Button(bar, text="Add log to file…", command=self.add_log_to_file).pack(side="right", padx=6)
-        self.summary = ttk.Label(parent, style="Muted.TLabel", wraplength=900, justify="left")
+        ttk.Button(bar, text="Add log…", command=self.add_log_to_file).pack(side="right", padx=4)
+        self.summary = ttk.Label(parent, style="Muted.TLabel", wraplength=820, justify="left")
         self.summary.pack(anchor="w")
-        self.table = DataTable(parent, [("ok", "Apply", 50, "center"), ("kind", "Change", 110), ("key", "Key", 180),
-                                        ("col", "Column", 140), ("old", "Old value", 200), ("new", "New value", 200)],
-                               searchable=True, on_double=self.toggle, stretch="new")
+        self.table = DataTable(parent, [("ok", "Apply", 48, "center"), ("kind", "Change", 95), ("key", "Key", 150),
+                                        ("col", "Column", 120), ("old", "Old value", 170), ("new", "New value", 170)],
+                               height=8, searchable=True, on_double=self.toggle, stretch="new")
         self.table.pack(fill="both", expand=True)
         self.table.tag_colors(update="info", add="ok", missing="muted", off="muted")
         ttk.Label(parent, text="Double-click a change to accept / reject it.", style="Muted.TLabel").pack(anchor="w")

@@ -76,7 +76,7 @@ class HomeTool(Tool):
         ttk.Button(head, text="⚙  Customize tools", command=lambda: self.app.open_settings("home")).pack(side="right")
 
         self.cards = ttk.Frame(p)
-        self.cards.pack(fill="x", pady=10)
+        self.cards.pack(fill="x", pady=(6, 4))
         self.hidden_bar = ttk.Frame(p)
         self.hidden_bar.pack(fill="x")
 
@@ -85,8 +85,8 @@ class HomeTool(Tool):
 
         self.logview = None
         if self.settings.get_bool("home.show_activity", True):
-            ttk.Label(p, text="Recent activity", style="H3.TLabel").pack(anchor="w", pady=(10, 2))
-            self.logview = LogView(p, height=10)
+            ttk.Label(p, text="Recent activity", style="H3.TLabel").pack(anchor="w", pady=(6, 2))
+            self.logview = LogView(p, height=6)
             self.logview.pack(fill="both", expand=True)
             for _stamp, level, tool, msg in list(self.app.logs):
                 self.logview.log(f"{tool + ': ' if tool else ''}{msg}", level)
@@ -122,16 +122,18 @@ class HomeTool(Tool):
         for c in range(cols):
             self.cards.columnconfigure(c, weight=1, uniform="cards")
         for i, t in enumerate(tools):
-            card = ttk.Frame(self.cards, padding=10, relief="groove")
-            card.grid(row=i // cols, column=i % cols, sticky="nsew", padx=4, pady=4)
-            ttk.Label(card, text=f"{t.icon}  {t.title}", style="H3.TLabel").pack(anchor="w")
+            card = ttk.Frame(self.cards, padding=(8, 6), relief="groove")
+            card.grid(row=i // cols, column=i % cols, sticky="nsew", padx=3, pady=3)
+            hdr = ttk.Frame(card)
+            hdr.pack(fill="x")
+            ttk.Label(hdr, text=f"{t.icon}  {t.title}", style="H3.TLabel").pack(side="left", anchor="w")
+            ttk.Button(hdr, text="Open", style="Tiny.TButton", command=lambda i=t.id: self.app.show_tool(i)).pack(side="right")
             if show_desc:
-                ttk.Label(card, text=t.description, style="Muted.TLabel", wraplength=max(160, 760 // cols - 40),
-                          justify="left").pack(anchor="w")
+                ttk.Label(card, text=t.description, style="Muted.TLabel", wraplength=max(160, 760 // cols - 30),
+                          justify="left").pack(anchor="w", pady=(2, 0))
             st = t.stats() if (show_stats and (t.built or t.stats_when_closed)) else {}
             if st:
-                ttk.Label(card, text="  ".join(f"{k}: {v}" for k, v in st.items())).pack(anchor="w", pady=(4, 0))
-            ttk.Button(card, text="Open", command=lambda i=t.id: self.app.show_tool(i)).pack(anchor="w", pady=(6, 0))
+                ttk.Label(card, text="  ".join(f"{k}: {v}" for k, v in st.items())).pack(anchor="w", pady=(3, 0))
             self._bind_menu(card, t.id)
         self._draw_hidden_bar()
         if self.combo is not None:

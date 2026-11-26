@@ -58,18 +58,18 @@ class AutopilotTool(Tool):
         ttk.Label(parent, text="Everything that can work without you. Global switches live in Settings > Automation.",
                   style="Muted.TLabel").pack(anchor="w")
         bar = ttk.Frame(parent)
-        bar.pack(fill="x", pady=8)
+        bar.pack(fill="x", pady=(4, 4))
         ttk.Button(bar, text="Start all", style="Accent.TButton", command=self._all(True)).pack(side="left")
-        ttk.Button(bar, text="Stop all", command=self._all(False)).pack(side="left", padx=6)
+        ttk.Button(bar, text="Stop all", command=self._all(False)).pack(side="left", padx=4)
         ttk.Button(bar, text="Automation settings…", command=lambda: self.app.open_settings("auto")).pack(side="right")
         self.rows = ttk.Frame(parent)
         self.rows.pack(fill="x")
 
-        ttk.Label(parent, text="Folder triggers", style="H3.TLabel").pack(anchor="w", pady=(14, 0))
+        ttk.Label(parent, text="Folder triggers", style="H3.TLabel").pack(anchor="w", pady=(8, 0))
         ttk.Label(parent, text="When a file finishes arriving in a folder, run a saved workflow on it.",
                   style="Muted.TLabel").pack(anchor="w")
         tb = ttk.Frame(parent)
-        tb.pack(fill="x", pady=6)
+        tb.pack(fill="x", pady=(4, 4))
         ttk.Button(tb, text="＋ New trigger", style="Accent.TButton", command=self.add_trigger).pack(side="left")
         ttk.Button(tb, text="Edit", command=self.edit_trigger).pack(side="left", padx=4)
         ttk.Button(tb, text="Delete", command=self.delete_trigger).pack(side="left")
@@ -78,8 +78,8 @@ class AutopilotTool(Tool):
         ttk.Button(tb, text="Files handled…", command=self.show_handled).pack(side="left", padx=4)
         ttk.Button(tb, text="Test (preview)", command=self.test_selected).pack(side="left")
         cols = ("name", "folder", "workflow", "types", "state", "last")
-        self.tree = ttk.Treeview(parent, columns=cols, show="headings", selectmode="browse", height=8)
-        for c, w in zip(cols, (140, 260, 150, 80, 90, 220)):
+        self.tree = ttk.Treeview(parent, columns=cols, show="headings", selectmode="browse", height=6)
+        for c, w in zip(cols, (130, 210, 130, 75, 80, 170)):
             self.tree.heading(c, text=c.title() if c != "last" else "Last run")
             self.tree.column(c, width=w, anchor="w")
         self.tree.pack(fill="both", expand=True)

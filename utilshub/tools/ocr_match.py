@@ -48,24 +48,24 @@ class OcrMatch(Tool):
         bar = ttk.Frame(parent)
         bar.pack(fill="x")
         ttk.Button(bar, text="Add files…  (Ctrl+O)", command=self.pick_files).pack(side="left")
-        ttk.Button(bar, text="Clear", command=self.clear).pack(side="left", padx=6)
+        ttk.Button(bar, text="Clear", command=self.clear).pack(side="left", padx=4)
         ttk.Button(bar, text="Copy text", command=self.copy_text).pack(side="right")
-        ttk.Button(bar, text="Save text…", command=self.save_text).pack(side="right", padx=6)
-        self.status = ttk.Label(parent, style="Muted.TLabel", text="Add scans, PDFs or photos .")
-        self.status.pack(anchor="w", pady=(4, 0))
+        ttk.Button(bar, text="Save text…", command=self.save_text).pack(side="right", padx=4)
+        self.status = ttk.Label(parent, style="Muted.TLabel", text="Add scans, PDFs or photos.")
+        self.status.pack(anchor="w", pady=(3, 0))
 
         paned = ttk.PanedWindow(parent, orient="vertical")
-        paned.pack(fill="both", expand=True, pady=6)
+        paned.pack(fill="both", expand=True, pady=(4, 0))
         top = ttk.Frame(paned)
         paned.add(top, weight=3)
-        self.files = DataTable(top, [("file", "File", 260), ("pages", "Pages", 55, "e"), ("chars", "Characters", 80, "e"),
-                                     ("how", "Read by", 90), ("note", "Note", 240)], height=4, stretch="note",
+        self.files = DataTable(top, [("file", "File", 190), ("pages", "Pages", 50, "e"), ("chars", "Chars", 65, "e"),
+                                     ("how", "Read by", 80), ("note", "Note", 180)], height=3, stretch="note",
                                on_select=lambda ids: self._show_text())
         self.files.pack(fill="x")
         self.files.tag_colors(err="err")
         tf = ttk.Frame(top)
-        tf.pack(fill="both", expand=True, pady=(6, 0))
-        self.text = tk.Text(tf, wrap="word", height=10)
+        tf.pack(fill="both", expand=True, pady=(4, 0))
+        self.text = tk.Text(tf, wrap="word", height=6)
         sb = ttk.Scrollbar(tf, command=self.text.yview)
         self.text.configure(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")
@@ -74,7 +74,7 @@ class OcrMatch(Tool):
 
         low = ttk.Frame(paned)
         paned.add(low, weight=3)
-        box = ttk.LabelFrame(low, text="Find in the text", padding=8)
+        box = ttk.LabelFrame(low, text="Find in the text", padding=(6, 4))
         box.pack(fill="x")
         row = ttk.Frame(box)
         row.pack(fill="x")
@@ -84,30 +84,30 @@ class OcrMatch(Tool):
         self.all_files = tk.BooleanVar(value=True)
         for label, v in (("Regex", "regex"), ("Similarity", "similar")):
             ttk.Radiobutton(row, text=label, value=v, variable=self.mode,
-                            command=lambda: self.put("mode", self.mode.get())).pack(side="left", padx=(0, 8))
-        ttk.Label(row, text="Similarity %").pack(side="left", padx=(8, 2))
+                            command=lambda: self.put("mode", self.mode.get())).pack(side="left", padx=(0, 6))
+        ttk.Label(row, text="Similarity %").pack(side="left", padx=(6, 2))
         ttk.Spinbox(row, from_=40, to=100, width=4, textvariable=self.th).pack(side="left")
-        ttk.Checkbutton(row, text="Ignore case", variable=self.icase).pack(side="left", padx=10)
+        ttk.Checkbutton(row, text="Ignore case", variable=self.icase).pack(side="left", padx=8)
         ttk.Checkbutton(row, text="Search all files", variable=self.all_files).pack(side="left")
         ttk.Button(row, text="Find  (F5)", style="Accent.TButton", command=self.find).pack(side="right")
         ttk.Label(box, style="Muted.TLabel",
-                  text="One pattern per line. Regex example: \\b\\d{9}\\b   •   Similarity: type the names / words to look for.").pack(
-            anchor="w", pady=(4, 2))
-        self.patterns = tk.Text(box, height=3, wrap="none", undo=True)
+                  text="One pattern per line (Regex e.g. \\b\\d{9}\\b, or names/words for Similarity).").pack(
+            anchor="w", pady=(3, 2))
+        self.patterns = tk.Text(box, height=2, wrap="none", undo=True)
         self.patterns.pack(fill="x")
         style_text(self.frame, self.patterns)
         autocomplete(self.patterns, "ocr_match.patterns")
         self.patterns.insert("1.0", self.get("patterns"))
 
         rbar = ttk.Frame(low)
-        rbar.pack(fill="x", pady=(8, 2))
+        rbar.pack(fill="x", pady=(4, 2))
         self.summary = ttk.Label(rbar, style="Muted.TLabel")
         self.summary.pack(side="left")
         ttk.Button(rbar, text="Add to file…", command=self.add_to_file).pack(side="right")
-        ttk.Button(rbar, text="Copy results", command=lambda: self.results.copy_selected(all_rows=True)).pack(side="right", padx=6)
-        self.results = DataTable(low, [("file", "File", 200), ("pattern", "Looked for", 170), ("found", "Found", 220),
-                                       ("score", "Score", 60, "e"), ("page", "Page", 50, "e"), ("line", "Line", 50, "e"),
-                                       ("context", "Line text", 340)], height=8, stretch="context", searchable=True)
+        ttk.Button(rbar, text="Copy results", command=lambda: self.results.copy_selected(all_rows=True)).pack(side="right", padx=4)
+        self.results = DataTable(low, [("file", "File", 160), ("pattern", "Looked for", 140), ("found", "Found", 170),
+                                       ("score", "Score", 55, "e"), ("page", "Pg", 42, "e"), ("line", "Line", 45, "e"),
+                                       ("context", "Line text", 240)], height=5, stretch="context", searchable=True)
         self.results.pack(fill="both", expand=True)
         for iid in self.docs:
             self._add_row(iid)

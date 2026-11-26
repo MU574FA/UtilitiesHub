@@ -324,7 +324,7 @@ class SimilaritySearch(Tool):
 
         paned = ttk.PanedWindow(parent, orient="horizontal")
         paned.pack(fill="both", expand=True)
-        left = ttk.Frame(paned, padding=(0, 0, 8, 0))
+        left = ttk.Frame(paned, padding=(0, 0, 6, 0))
         right = ttk.Frame(paned)
         paned.add(left, weight=1)
         paned.add(right, weight=4)
@@ -333,12 +333,13 @@ class SimilaritySearch(Tool):
         hdr = ttk.Frame(left)
         hdr.pack(fill="x")
         ttk.Label(hdr, text="Search in", style="H3.TLabel").pack(side="left")
-        self.cache_btn = ttk.Button(hdr, text="💾 Cache (0)", style="Tiny.TButton", command=self.open_cache_manager)
+        self.cache_btn = ttk.Button(hdr, text="💾 0", style="Tiny.TButton", command=self.open_cache_manager)
         self.cache_btn.pack(side="right")
+        Tooltip(self.cache_btn, "Open OCR Cache Manager")
 
         sbox = ttk.Frame(left)
-        sbox.pack(fill="both", expand=True, pady=4)
-        self.src_list = tk.Listbox(sbox, width=30, height=9, selectmode="extended", activestyle="none")
+        sbox.pack(fill="both", expand=True, pady=3)
+        self.src_list = tk.Listbox(sbox, width=22, height=7, selectmode="extended", activestyle="none")
         ssb = ttk.Scrollbar(sbox, command=self.src_list.yview)
         self.src_list.configure(yscrollcommand=ssb.set)
         ssb.pack(side="right", fill="y")
@@ -347,49 +348,59 @@ class SimilaritySearch(Tool):
 
         sbar1 = ttk.Frame(left)
         sbar1.pack(fill="x")
-        ttk.Button(sbar1, text="Add folder…", style="Tiny.TButton", command=self.add_folder).pack(side="left")
-        ttk.Button(sbar1, text="Add files…", style="Tiny.TButton", command=self.add_files).pack(side="left", padx=4)
-        ttk.Button(sbar1, text="Paste text…", style="Tiny.TButton", command=self.add_pasted_text).pack(side="left")
+        b_af = ttk.Button(sbar1, text="Folder", style="Tiny.TButton", command=self.add_folder)
+        b_af.pack(side="left")
+        Tooltip(b_af, "Add folder to index")
+        b_afi = ttk.Button(sbar1, text="Files", style="Tiny.TButton", command=self.add_files)
+        b_afi.pack(side="left", padx=2)
+        Tooltip(b_afi, "Add files to index")
+        b_pt = ttk.Button(sbar1, text="Paste", style="Tiny.TButton", command=self.add_pasted_text)
+        b_pt.pack(side="left")
+        Tooltip(b_pt, "Add pasted text snippet to corpus")
 
         sbar2 = ttk.Frame(left)
         sbar2.pack(fill="x", pady=(3, 0))
         ttk.Button(sbar2, text="Remove", style="Tiny.TButton", command=self.remove_sources).pack(side="left")
-        ttk.Button(sbar2, text="Clear", style="Tiny.TButton", command=self.clear_sources).pack(side="left", padx=4)
+        ttk.Button(sbar2, text="Clear", style="Tiny.TButton", command=self.clear_sources).pack(side="left", padx=3)
 
-        self.src_lbl = ttk.Label(left, style="Muted.TLabel", wraplength=240, justify="left", text="")
-        self.src_lbl.pack(anchor="w", pady=(4, 2))
+        self.src_lbl = ttk.Label(left, style="Muted.TLabel", wraplength=200, justify="left", text="")
+        self.src_lbl.pack(anchor="w", pady=(3, 2))
 
         for txt, key in (
-            ("Include sub-folders", "recursive"),
-            ("Auto-index when adding", "auto_index"),
-            ("Include all cached files", "include_all_cached"),
+            ("Sub-folders", "recursive"),
+            ("Auto-index", "auto_index"),
+            ("All cached files", "include_all_cached"),
         ):
             ttk.Checkbutton(left, text=txt, variable=var(key, tk.BooleanVar)).pack(anchor="w")
 
         frow = ttk.Frame(left)
-        frow.pack(fill="x", pady=(4, 2))
+        frow.pack(fill="x", pady=(3, 2))
         ttk.Label(frow, text="Type").pack(side="left")
         ft_labels = dict(_FILE_TYPE_CHOICES)
         self.ft_label_var = tk.StringVar(value=ft_labels.get(self.get("file_type"), "All supported"))
         ft_combo = ttk.Combobox(frow, textvariable=self.ft_label_var, values=[l for _k, l in _FILE_TYPE_CHOICES],
-                                state="readonly", width=15)
+                                state="readonly", width=13)
         ft_combo.pack(side="left", padx=4, fill="x", expand=True)
         ft_combo.bind("<<ComboboxSelected>>", self._on_file_type_selected)
 
         erow = ttk.Frame(left)
         erow.pack(fill="x", pady=2)
         ttk.Label(erow, text="Exts").pack(side="left")
-        self.ext_entry = ttk.Entry(erow, width=16, textvariable=var("extensions"))
+        self.ext_entry = ttk.Entry(erow, width=14, textvariable=var("extensions"))
         self.ext_entry.pack(side="left", padx=4, fill="x", expand=True)
         autocomplete(self.ext_entry, "similarity_search.extensions")
 
         ibar = ttk.Frame(left)
-        ibar.pack(fill="x", pady=(6, 0))
-        ttk.Button(ibar, text="⚡ Index / Check changes", style="Accent.TButton", command=self.index_sources).pack(fill="x")
-        ttk.Button(ibar, text="↻ Force re-OCR all", command=self.force_reocr_all).pack(fill="x", pady=(4, 0))
+        ibar.pack(fill="x", pady=(4, 0))
+        idx_b = ttk.Button(ibar, text="⚡ Index / Check", style="Accent.TButton", command=self.index_sources)
+        idx_b.pack(fill="x")
+        Tooltip(idx_b, "Index sources & check for modified cached files")
+        reocr_b = ttk.Button(ibar, text="↻ Re-OCR all", command=self.force_reocr_all)
+        reocr_b.pack(fill="x", pady=(3, 0))
+        Tooltip(reocr_b, "Force re-OCR on all active sources")
 
         # --- Right: query + results + inspector
-        qbox = ttk.LabelFrame(right, text="Search by text, file, folder, or clipboard image", padding=8)
+        qbox = ttk.LabelFrame(right, text="Search by text, file, folder, or clipboard image", padding=(6, 4))
         qbox.pack(fill="x")
 
         r1 = ttk.Frame(qbox)
@@ -398,24 +409,30 @@ class SimilaritySearch(Tool):
         mode_map = dict(SEARCH_MODES)
         self.mode_label_var = tk.StringVar(value=mode_map.get(self.get("mode"), SEARCH_MODES[0][1]))
         mode_combo = ttk.Combobox(r1, textvariable=self.mode_label_var, values=[l for _k, l in SEARCH_MODES],
-                                  state="readonly", width=22)
-        mode_combo.pack(side="left", padx=(4, 8))
+                                  state="readonly", width=18)
+        mode_combo.pack(side="left", padx=(4, 6))
         mode_combo.bind("<<ComboboxSelected>>", self._on_mode_selected)
 
         ttk.Label(r1, text="Min %").pack(side="left")
-        ttk.Spinbox(r1, from_=20, to=100, width=4, textvariable=var("threshold", tk.IntVar)).pack(side="left", padx=(2, 8))
-        ttk.Checkbutton(r1, text="Match all lines", variable=var("match_all_lines", tk.BooleanVar)).pack(side="left")
-        ttk.Checkbutton(r1, text="OCR-tolerant", variable=var("ocr_tolerant", tk.BooleanVar)).pack(side="left", padx=6)
+        ttk.Spinbox(r1, from_=20, to=100, width=4, textvariable=var("threshold", tk.IntVar)).pack(side="left", padx=(2, 4))
+        chk_all = ttk.Checkbutton(r1, text="AND", variable=var("match_all_lines", tk.BooleanVar))
+        chk_all.pack(side="left")
+        Tooltip(chk_all, "Require all query lines to match (AND)")
+        chk_tol = ttk.Checkbutton(r1, text="OCR-tol", variable=var("ocr_tolerant", tk.BooleanVar))
+        chk_tol.pack(side="left", padx=3)
+        Tooltip(chk_tol, "OCR-tolerant matching (rn/m, 0/O, 1/l, Arabic/accents)")
         ttk.Checkbutton(r1, text="Live", variable=var("live_search", tk.BooleanVar)).pack(side="left")
 
-        self.recent_btn = ttk.Menubutton(r1, text="Recent ▾", style="Tiny.TButton")
+        self.recent_btn = ttk.Menubutton(r1, text="Recent ▾", style="Tiny.TMenubutton")
         self.recent_menu = tk.Menu(self.recent_btn, tearoff=False)
         self.recent_btn["menu"] = self.recent_menu
-        self.recent_btn.pack(side="right", padx=(6, 0))
-        ttk.Button(r1, text="🔍 Search  (F5)", style="Accent.TButton", command=self.run_search).pack(side="right")
+        self.recent_btn.pack(side="right", padx=(4, 0))
+        srch_b = ttk.Button(r1, text="🔍 Search", style="Accent.TButton", command=self.run_search)
+        srch_b.pack(side="right")
+        Tooltip(srch_b, "Run search (F5)")
 
-        self.query_text = tk.Text(qbox, height=3, wrap="word", undo=True)
-        self.query_text.pack(fill="x", pady=(6, 4))
+        self.query_text = tk.Text(qbox, height=2, wrap="word", undo=True)
+        self.query_text.pack(fill="x", pady=(4, 3))
         style_text(right, self.query_text)
         autocomplete(self.query_text, "similarity_search.query")
         self.query_text.bind("<Control-Return>", lambda _e: (self.run_search(), "break")[1])
@@ -423,35 +440,35 @@ class SimilaritySearch(Tool):
 
         r3 = ttk.Frame(qbox)
         r3.pack(fill="x")
-        ttk.Button(r3, text="📄 From file…", style="Tiny.TButton", command=self.pick_query_file).pack(side="left")
-        ttk.Button(r3, text="📁 From folder…", style="Tiny.TButton", command=self.pick_query_folder).pack(side="left", padx=4)
-        ttk.Button(r3, text="📋 Clipboard image", style="Tiny.TButton", command=self.query_from_clipboard_image).pack(side="left")
-        ttk.Button(r3, text="Clear query", style="Tiny.TButton", command=self.clear_query).pack(side="left", padx=4)
+        ttk.Button(r3, text="📄 File…", style="Tiny.TButton", command=self.pick_query_file).pack(side="left")
+        ttk.Button(r3, text="📁 Folder…", style="Tiny.TButton", command=self.pick_query_folder).pack(side="left", padx=3)
+        ttk.Button(r3, text="📋 Clipboard", style="Tiny.TButton", command=self.query_from_clipboard_image).pack(side="left")
+        ttk.Button(r3, text="Clear", style="Tiny.TButton", command=self.clear_query).pack(side="left", padx=3)
 
         self.query_src_lbl = ttk.Label(r3, text="", style="Info.TLabel")
-        self.query_src_lbl.pack(side="left", padx=6)
+        self.query_src_lbl.pack(side="left", padx=4)
 
         self.exclude_var = tk.StringVar(value="")
-        self.exclude_entry = ttk.Entry(r3, width=18, textvariable=self.exclude_var)
+        self.exclude_entry = ttk.Entry(r3, width=15, textvariable=self.exclude_var)
         self.exclude_entry.pack(side="right")
         autocomplete(self.exclude_entry, "similarity_search.exclude")
-        ttk.Label(r3, text="Exclude:", style="Muted.TLabel").pack(side="right", padx=(8, 4))
+        ttk.Label(r3, text="Exclude:", style="Muted.TLabel").pack(side="right", padx=(6, 4))
         self.exclude_var.trace_add("write", lambda *_a: self._schedule_live_search())
 
-        # Action bar
+        # Action bar + dedicated summary line so buttons never squeeze
         abar = ttk.Frame(right)
-        abar.pack(fill="x", pady=(6, 4))
-        self.summary = ttk.Label(abar, style="Muted.TLabel", text="Add files/folders to index and search.")
-        self.summary.pack(side="left")
+        abar.pack(fill="x", pady=(4, 2))
+        ttk.Button(abar, text="Copy files…", style="Tiny.TButton", command=self.copy_matching_files).pack(side="left")
+        ttk.Button(abar, text="↩ Undo copy", style="Tiny.TButton", command=self.undo_copy).pack(side="left", padx=3)
+        ttk.Button(abar, text="Excel…", style="Tiny.TButton", command=self.export_excel).pack(side="left")
+        ttk.Button(abar, text="Add to file…", style="Tiny.TButton", command=self.add_to_file).pack(side="left", padx=3)
+        ttk.Button(abar, text="Copy results", style="Tiny.TButton",
+                   command=lambda: self.results.copy_selected(all_rows=True)).pack(side="left")
 
         pv = var("preview", tk.BooleanVar)
         ttk.Checkbutton(abar, text="Preview", variable=pv, command=self._apply_preview_setting).pack(side="right")
-        ttk.Button(abar, text="Copy results", style="Tiny.TButton",
-                   command=lambda: self.results.copy_selected(all_rows=True)).pack(side="right", padx=4)
-        ttk.Button(abar, text="Add to file…", style="Tiny.TButton", command=self.add_to_file).pack(side="right")
-        ttk.Button(abar, text="Excel…", style="Tiny.TButton", command=self.export_excel).pack(side="right", padx=4)
-        ttk.Button(abar, text="↩ Undo copy", style="Tiny.TButton", command=self.undo_copy).pack(side="right")
-        ttk.Button(abar, text="Copy files…", style="Tiny.TButton", command=self.copy_matching_files).pack(side="right", padx=4)
+        self.summary = ttk.Label(right, style="Muted.TLabel", text="Add files/folders to index and search.")
+        self.summary.pack(anchor="w", pady=(0, 2))
 
         # Results + Inspector PanedWindow
         self.vpane = ttk.PanedWindow(right, orient="vertical")
@@ -462,17 +479,17 @@ class SimilaritySearch(Tool):
         self.results = DataTable(
             top_res,
             [
-                ("score", "Score", 62, "e"),
-                ("band", "Match", 72),
-                ("file", "File", 190),
-                ("page", "Page", 52, "e"),
-                ("hits", "Hits", 48, "e"),
-                ("snippet", "Matched snippet", 320),
-                ("source", "Source", 110),
-                ("query", "Query", 130),
-                ("folder", "Folder", 220),
+                ("score", "Score", 52, "e"),
+                ("band", "Match", 64),
+                ("file", "File", 130),
+                ("page", "Pg", 40, "e"),
+                ("hits", "Hits", 40, "e"),
+                ("snippet", "Matched snippet", 170),
+                ("source", "Source", 80),
+                ("query", "Query", 90),
+                ("folder", "Folder", 130),
             ],
-            height=9,
+            height=6,
             searchable=True,
             stretch="snippet",
             on_select=self._on_result_selected,
@@ -522,7 +539,7 @@ class SimilaritySearch(Tool):
 
         tf = ttk.Frame(text_tab)
         tf.pack(fill="both", expand=True)
-        self.doc_text = tk.Text(tf, wrap="word", height=9)
+        self.doc_text = tk.Text(tf, wrap="word", height=6)
         tsb = ttk.Scrollbar(tf, command=self.doc_text.yview)
         self.doc_text.configure(yscrollcommand=tsb.set)
         tsb.pack(side="right", fill="y")
@@ -579,7 +596,7 @@ class SimilaritySearch(Tool):
     def _refresh_cache_btn(self) -> None:
         if hasattr(self, "cache_btn"):
             n = self.store.stats()["docs"]
-            self.cache_btn.configure(text=f"💾 Cache ({n})")
+            self.cache_btn.configure(text=f"💾 {n}")
 
     def _invalidate_index(self) -> None:
         self._corpus_index = None

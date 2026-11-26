@@ -15,7 +15,7 @@ from ..core.system import open_path, reveal
 from ..core.textutil import parse_page_ranges, sanitize_filename
 from ..ui.thumbs import ThumbGrid, ThumbItem
 from ..ui.viewer import PageViewer
-from ..ui.widgets import confirm, error, info as info_box
+from ..ui.widgets import Tooltip, confirm, error, info as info_box
 from .base import Command, Tool
 from .docpacker import compress_at_least
 
@@ -63,13 +63,15 @@ class PdfDesk(Tool):
         ttk.Button(bar, text="Add folder…", command=self.pick_folder).pack(side="left", padx=4)
         ttk.Button(bar, text="Sort by name", command=self.sort_by_name).pack(side="left")
         ttk.Button(bar, text="Reverse", command=self.reverse).pack(side="left", padx=4)
-        ttk.Button(bar, text="Remove file of selection", command=self.remove_files_of_selection).pack(side="left")
+        rm_b = ttk.Button(bar, text="Remove file", command=self.remove_files_of_selection)
+        rm_b.pack(side="left")
+        Tooltip(rm_b, "Remove all pages belonging to the selected file(s)")
         ttk.Button(bar, text="Clear", command=self.clear).pack(side="left", padx=4)
         self.count = ttk.Label(bar, style="Muted.TLabel")
         self.count.pack(side="right")
 
         paned = ttk.PanedWindow(parent, orient="horizontal")
-        paned.pack(fill="both", expand=True, pady=8)
+        paned.pack(fill="both", expand=True, pady=(4, 0))
         left = ttk.Frame(paned)
         paned.add(left, weight=3)
         self.grid = ThumbGrid(left, self.app)
@@ -85,20 +87,20 @@ class PdfDesk(Tool):
         self._build_output_tab(nb)
         self._build_tools_tab(nb)
         self.viewer = PageViewer(right, self.app)
-        self.viewer.pack(fill="both", expand=True, pady=(8, 0))
+        self.viewer.pack(fill="both", expand=True, pady=(4, 0))
         self.viewer.on_rotate = self._viewer_rotated
         self._changed()
 
     def _build_output_tab(self, nb: ttk.Notebook) -> None:
-        f = ttk.Frame(nb, padding=8)
+        f = ttk.Frame(nb, padding=(6, 4))
         nb.add(f, text="Merge & save")
         self.vars: dict[str, tk.Variable] = {}
-        for row, (key, label, kind) in enumerate((("page_size", "Page size for images", "page"),
+        for row, (key, label, kind) in enumerate((("page_size", "Page size (images)", "page"),
                                                    ("page_numbers", "Page numbers", "str"),
                                                    ("watermark", "Watermark", "str"),
                                                    ("compression", "Compression (0-4)", "int"),
-                                                   ("max_mb", "Target size (MB, 0 = none)", "float"))):
-            ttk.Label(f, text=label).grid(row=row, column=0, sticky="w", pady=2)
+                                                   ("max_mb", "Target size (MB, 0=none)", "float"))):
+            ttk.Label(f, text=label).grid(row=row, column=0, sticky="w", pady=1)
             if kind == "page":
                 var = tk.StringVar(value=self.get(key))
                 w = ttk.Combobox(f, textvariable=var, values=["a4", "letter", "fit"], state="readonly", width=10)
@@ -110,8 +112,8 @@ class PdfDesk(Tool):
                 w = ttk.Spinbox(f, textvariable=var, from_=0, to=500, increment=0.5, width=6)
             else:
                 var = tk.StringVar(value=str(self.get(key)))
-                w = ttk.Entry(f, textvariable=var, width=24)
-            w.grid(row=row, column=1, sticky="w", padx=8)
+                w = ttk.Entry(f, textvariable=var, width=18)
+            w.grid(row=row, column=1, sticky="w", padx=6, pady=1)
             var.trace_add("write", lambda *_, k=key, v=var, t=kind: self._store(k, v.get(), t))
             self.vars[key] = var
         row = 5
@@ -122,7 +124,7 @@ class PdfDesk(Tool):
                             command=lambda k=key, v=var: self.put(k, v.get())).grid(row=row, column=0, columnspan=2, sticky="w")
             row += 1
         ttk.Button(f, text="Merge & save…", style="Accent.TButton", command=self.merge_save).grid(
-            row=row, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+            row=row, column=0, columnspan=2, sticky="ew", pady=(4, 0))
 
     def _store(self, key: str, raw: str, kind: str) -> None:
         try:
@@ -131,13 +133,13 @@ class PdfDesk(Tool):
             pass
 
     def _build_tools_tab(self, nb: ttk.Notebook) -> None:
-        f = ttk.Frame(nb, padding=8)
+        f = ttk.Frame(nb, padding=(6, 4))
         nb.add(f, text="Split & extract")
-        ttk.Label(f, text="Pages are counted in the grid order, as shown (1 = first thumbnail).", style="Muted.TLabel",
-                  wraplength=330).pack(anchor="w")
-        ttk.Button(f, text="Extract selected pages to a new PDF…", command=self.extract_selected).pack(fill="x", pady=(6, 2))
+        ttk.Label(f, text="Pages follow grid order (1 = first thumbnail).", style="Muted.TLabel",
+                  wraplength=280).pack(anchor="w")
+        ttk.Button(f, text="Extract selected pages…", command=self.extract_selected).pack(fill="x", pady=(4, 2))
         self.split_var = tk.StringVar(value="1-3, 4-6")
-        ttk.Label(f, text="Split into files - one range per file, e.g. 1-3, 4-6, 7-").pack(anchor="w", pady=(8, 0))
+        ttk.Label(f, text="Split ranges (e.g. 1-3, 4-6, 7-)").pack(anchor="w", pady=(4, 0))
         ttk.Entry(f, textvariable=self.split_var).pack(fill="x")
         ttk.Button(f, text="Split by ranges…", command=self.split_ranges).pack(fill="x", pady=2)
         self.every_var = tk.StringVar(value="1")
@@ -147,9 +149,9 @@ class PdfDesk(Tool):
         ttk.Spinbox(r, textvariable=self.every_var, from_=1, to=1000, width=5).pack(side="left", padx=4)
         ttk.Label(r, text="page(s)").pack(side="left")
         ttk.Button(r, text="Split…", command=self.split_every).pack(side="right")
-        ttk.Separator(f).pack(fill="x", pady=8)
+        ttk.Separator(f).pack(fill="x", pady=4)
         ttk.Button(f, text="Rotate all pages ⟳", command=lambda: self._rotate_all(90)).pack(fill="x")
-        ttk.Button(f, text="Keep only the selected pages", command=self.keep_selected).pack(fill="x", pady=2)
+        ttk.Button(f, text="Keep only selected pages", command=self.keep_selected).pack(fill="x", pady=2)
         ttk.Button(f, text="Reveal last result", command=lambda: self.last_output and reveal(self.last_output)).pack(fill="x")
 
     # ------------------------------------------------------------------ adding files

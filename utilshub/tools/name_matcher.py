@@ -11,7 +11,7 @@ from ..core.matching import find_internal_duplicates, match_lists, one_to_one, s
 from ..core.schema import Opt
 from ..ui.autocomplete import attach as autocomplete
 from ..core.sheets import Book, SheetError, Table, cell_text, guess_name_column, load_book, write_csv, write_xlsx
-from ..ui.widgets import DataTable, FolderEntry, error, info, modal, style_text
+from ..ui.widgets import DataTable, FolderEntry, Tooltip, error, info, modal, style_text
 from .base import Command, Tool
 
 STATUS_LABEL = {"strong": "Strong", "probable": "Probable", "weak": "Weak", "none": "No match", "manual": "Manual"}
@@ -214,20 +214,26 @@ class NameMatcher(Tool):
         self.pb.path.trace_add("write", lambda *_: self.put("b_path", self.pb.path.get()))
 
         bar = ttk.Frame(parent)
-        bar.pack(fill="x", pady=6)
+        bar.pack(fill="x", pady=(4, 4))
         self.th = tk.IntVar(value=self.get("threshold"))
         self.uniq = tk.BooleanVar(value=self.get("one_to_one"))
-        ttk.Button(bar, text="▶ Compare  (F5)", style="Accent.TButton", command=self.compare).pack(side="left")
-        ttk.Label(bar, text="Threshold %").pack(side="left", padx=(10, 2))
+        cmp_b = ttk.Button(bar, text="▶ Compare", style="Accent.TButton", command=self.compare)
+        cmp_b.pack(side="left")
+        Tooltip(cmp_b, "Compare lists (F5)")
+        ttk.Label(bar, text="Threshold %").pack(side="left", padx=(8, 2))
         ttk.Spinbox(bar, from_=40, to=100, width=4, textvariable=self.th, command=self.refilter).pack(side="left")
-        ttk.Checkbutton(bar, text="One-to-one", variable=self.uniq, command=self.rebuild).pack(side="left", padx=8)
+        ttk.Checkbutton(bar, text="1-to-1", variable=self.uniq, command=self.rebuild).pack(side="left", padx=6)
         self.th.trace_add("write", lambda *_: self._th_changed())
         self.show_var = tk.StringVar(value="all")
         for text, v in (("All", "all"), ("Matched", "matched"), ("Unmatched", "unmatched"), ("Review", "review")):
             ttk.Radiobutton(bar, text=text, value=v, variable=self.show_var, command=self.refilter).pack(side="left", padx=2)
-        ttk.Button(bar, text="Export…  (Ctrl+E)", command=self.export).pack(side="right")
-        ttk.Button(bar, text="Add to file…", command=self.add_to_file).pack(side="right", padx=4)
-        ttk.Button(bar, text="Duplicates in A", command=self.duplicates).pack(side="right", padx=4)
+        exp_b = ttk.Button(bar, text="Export…", command=self.export)
+        exp_b.pack(side="right")
+        Tooltip(exp_b, "Export match results (Ctrl+E)")
+        ttk.Button(bar, text="Add to file…", command=self.add_to_file).pack(side="right", padx=3)
+        dup_b = ttk.Button(bar, text="Duplicates", command=self.duplicates)
+        dup_b.pack(side="right", padx=3)
+        Tooltip(dup_b, "Find duplicate names inside List A")
         self.summary = ttk.Label(parent, style="Muted.TLabel")
         self.summary.pack(anchor="w")
 

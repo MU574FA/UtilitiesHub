@@ -330,47 +330,47 @@ class VisaTracker(Tool):
         self._menus = (export, more)
 
         bar = ttk.Frame(parent)
-        bar.pack(fill="x", pady=(6, 0))
+        bar.pack(fill="x", pady=(4, 0))
         add_btn = ttk.Button(bar, text="＋ Add person", style="Accent.TButton", command=self.add_person)
-        add_btn.pack(side="left", padx=(0, 4))
+        add_btn.pack(side="left", padx=(0, 3))
         Tooltip(add_btn, "Add a new person manually (Ctrl+N)")
         for text, cmd, tp in (("📄 Import Visa PDF…", self.import_visa_pdf,
                                "Extract multiple visas from a PDF, check against your candidate sheet, and review before importing"),
                               ("📊 Import Sheet…", self.import_file,
                                "Import people from an Excel or CSV spreadsheet")):
             b = ttk.Button(bar, text=text, command=cmd)
-            b.pack(side="left", padx=(0, 4))
+            b.pack(side="left", padx=(0, 3))
             Tooltip(b, tp)
-        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8, pady=2)
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=5, pady=2)
         for text, cmd, tp in (("👤 Candidate info", self.show_candidate_info,
                                "Show the selected candidate's row from your candidate sheet"),
                               ("📝 Log contact…", self.log_contact,
                                "Log a follow-up contact for the selected person(s) (Ctrl+L)")):
             b = ttk.Button(bar, text=text, command=cmd)
-            b.pack(side="left", padx=(0, 4))
+            b.pack(side="left", padx=(0, 3))
             Tooltip(b, tp)
         ttk.Button(bar, text="⋯ More", command=lambda: self._menu_button(more)).pack(side="right")
-        ttk.Button(bar, text="Export ▾", command=lambda: self._menu_button(export)).pack(side="right", padx=6)
+        ttk.Button(bar, text="Export ▾", command=lambda: self._menu_button(export)).pack(side="right", padx=4)
 
         # -- filter chips & group picker -----------------------------------------------------------
         self.chip_bar = ttk.Frame(parent)
-        self.chip_bar.pack(fill="x", pady=(8, 2))
+        self.chip_bar.pack(fill="x", pady=(4, 2))
         self.chips: dict[str, ttk.Button] = {}
         for key in CHIPS:
-            b = ttk.Button(self.chip_bar, command=lambda k=key: self.set_filter(k))
+            b = ttk.Button(self.chip_bar, style="Tiny.TButton", command=lambda k=key: self.set_filter(k))
             b.pack(side="left", padx=1)
             self.chips[key] = b
         self.group_var = tk.StringVar(value=ALL_GROUPS)
-        self.group_box = ttk.Combobox(self.chip_bar, textvariable=self.group_var, state="readonly", width=18, values=[ALL_GROUPS])
+        self.group_box = ttk.Combobox(self.chip_bar, textvariable=self.group_var, state="readonly", width=15, values=[ALL_GROUPS])
         self.group_box.pack(side="right")
         self.group_box.bind("<<ComboboxSelected>>", lambda e: self.refresh())
 
         # -- main split: list (left) | detail panel (right) ----------------------------------------
         paned = ttk.PanedWindow(parent, orient="horizontal")
-        paned.pack(fill="both", expand=True, pady=(4, 0))
+        paned.pack(fill="both", expand=True, pady=(3, 0))
         lf = ttk.Frame(paned)
         paned.add(lf, weight=3)
-        self.table = DataTable(lf, COLUMNS, height=14, searchable=True, stretch="todo", on_select=self._selected,
+        self.table = DataTable(lf, COLUMNS, height=11, searchable=True, stretch="todo", on_select=self._selected,
                                on_double=lambda iid: self.edit_person(iid))
         self.table.pack(fill="both", expand=True)
         self.table.tag_colors(overdue="err", critical="err", urgent="warn", soon="info", ok="fg", nodate="muted",
@@ -383,7 +383,7 @@ class VisaTracker(Tool):
         self.table.tree.bind("<Button-3>", self._row_menu)
         self.table.tree.bind("<Button-2>", self._row_menu)
         self._apply_columns()
-        right = ttk.Frame(paned, padding=(10, 0, 0, 0))
+        right = ttk.Frame(paned, padding=(6, 0, 0, 0))
         paned.add(right, weight=2)
         self.detail = ttk.Frame(right)
         self.detail.pack(fill="both", expand=True)

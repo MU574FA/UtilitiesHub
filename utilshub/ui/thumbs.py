@@ -72,7 +72,7 @@ class ThumbGrid(ttk.Frame):
 
     def _toolbar(self) -> None:
         bar = ttk.Frame(self)
-        bar.pack(fill="x", pady=(0, 4))
+        bar.pack(fill="x", pady=(0, 3))
         for text, cmd, tip in (("⟲", lambda: self.rotate_selected(-90), "Rotate selected pages left"),
                                ("⟳", lambda: self.rotate_selected(90), "Rotate selected pages right"),
                                ("◀", lambda: self.move_selected(-1), "Move selected earlier (←)"),
@@ -81,11 +81,11 @@ class ThumbGrid(ttk.Frame):
             b = ttk.Button(bar, text=text, command=cmd, style="Tiny.TButton", width=3)
             b.pack(side="left", padx=1)
             Tooltip(b, tip)
-        ttk.Button(bar, text="Select all", style="Tiny.TButton", command=self.select_all).pack(side="left", padx=(8, 1))
+        ttk.Button(bar, text="Select all", style="Tiny.TButton", command=self.select_all).pack(side="left", padx=(6, 1))
         self.info = ttk.Label(bar, style="Muted.TLabel")
         self.info.pack(side="right")
         ttk.Label(bar, text="Zoom").pack(side="right", padx=(0, 2))
-        scale = ttk.Scale(bar, from_=80, to=300, value=self.size, length=100,
+        scale = ttk.Scale(bar, from_=80, to=300, value=self.size, length=80,
                           command=lambda v: self.set_size(int(float(v))))
         scale.pack(side="right", padx=4)
 

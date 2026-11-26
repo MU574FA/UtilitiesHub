@@ -815,7 +815,7 @@ class CvSorter(Tool):
         ttk.Label(top, text="Watch / source folder").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=2)
         watch_var = tk.StringVar(value=self.get("watch_folder"))
         watch_var.trace_add("write", lambda *_: self.put("watch_folder", watch_var.get().strip()))
-        FolderEntry(top, watch_var, "dir", width=60, open_button=True).grid(row=0, column=1, sticky="ew", pady=2)
+        FolderEntry(top, watch_var, "dir", width=32, open_button=True).grid(row=0, column=1, sticky="ew", pady=2)
         self.vars["watch_folder"] = watch_var
         self.sync_var("watch_folder", watch_var)
 
@@ -825,7 +825,7 @@ class CvSorter(Tool):
         dest_var.trace_add("write", lambda *_: self.put("dest_folder", dest_var.get().strip()))
         dest_frame = ttk.Frame(top)
         dest_frame.columnconfigure(0, weight=1)
-        dest_entry = ttk.Entry(dest_frame, textvariable=dest_var, width=52)
+        dest_entry = ttk.Entry(dest_frame, textvariable=dest_var, width=30)
         dest_entry.grid(row=0, column=0, sticky="ew")
 
         def _browse_dest():
@@ -857,33 +857,33 @@ class CvSorter(Tool):
         self.vars["dest_folder"] = dest_var
         self.sync_var("dest_folder", dest_var)
         bar = ttk.Frame(parent)
-        bar.pack(fill="x", pady=8)
+        bar.pack(fill="x", pady=(4, 4))
         self.watch_var = tk.BooleanVar(value=self.auto_running())
         ttk.Checkbutton(bar, text="Watch automatically", variable=self.watch_var,
                         command=lambda: self.put("watch", self.watch_var.get())).pack(side="left")
-        for text, cmd, tip_ in (("Process folder now", self.process_folder, "Read every file in the source folder"),
-                                ("Add files…", self.add_files, "Pick files to sort"),
-                                ("Review next ▶", self.review_next, "Open the next CV that needs review"),
-                                ("Accept all clean", self.accept_clean, "Save every waiting CV that has no problems"),
+        for text, cmd, tip_ in (("Process folder", self.process_folder, "Read every file in the source folder (F5)"),
+                                ("Add files…", self.add_files, "Pick files to sort (Ctrl+O)"),
+                                ("Review next ▶", self.review_next, "Open the next CV that needs review (Ctrl+R)"),
+                                ("Accept clean", self.accept_clean, "Save every waiting CV that has no problems"),
                                 ("Undo last", self.undo_last, "Move the last filed CV back")):
             b = ttk.Button(bar, text=text, command=cmd, style="Accent.TButton" if text.startswith("Review") else "TButton")
-            b.pack(side="left", padx=(8, 0))
+            b.pack(side="left", padx=(4, 0))
             Tooltip(b, tip_)
         ttk.Button(bar, text="⚙ Settings", command=lambda: self.app.open_settings(self.id)).pack(side="right")
         b_csv = ttk.Button(bar, text="📊 Open CSV", command=self.open_csv)
         b_csv.pack(side="right", padx=(0, 4))
         Tooltip(b_csv, "Open the configured output CSV file in Excel / default app")
         self.summary = ttk.Label(bar, style="Muted.TLabel")
-        self.summary.pack(side="right", padx=10)
-        self.table = DataTable(parent, [("file", "File", 260, "w"), ("name", "Name", 180, "w"), ("status", "Status", 90, "w"),
-                                        ("notes", "Notes", 360, "w")], height=12, searchable=True,
+        self.summary.pack(side="right", padx=6)
+        self.table = DataTable(parent, [("file", "File", 220, "w"), ("name", "Name", 160, "w"), ("status", "Status", 85, "w"),
+                                        ("notes", "Notes", 260, "w")], height=10, searchable=True,
                                on_double=lambda iid: self.open_review(self.items[iid]), stretch="notes")
-        self.table.pack(fill="both", expand=True, pady=(8, 0))
+        self.table.pack(fill="both", expand=True, pady=(4, 0))
         self.table.tree.bind("<Return>", lambda e: self._each_selected(lambda i: self.open_review(i), 1))
-        ttk.Label(parent, style="Muted.TLabel",
-                  text="Shortcuts: Enter = review selected • Ctrl+R = review next • Ctrl+O = add files • F5 = process folder\n"
-                       "In the review window: Enter = save & next • Esc = skip • Ctrl+S = save • Alt+←/→ = previous / next • Ctrl+W = close"
-                  ).pack(anchor="w", pady=(4, 0))
+        ttk.Label(parent, style="Muted.TLabel", wraplength=900,
+                  text="Shortcuts: Enter = review selected • Ctrl+R = review next • Ctrl+O = add files • F5 = process folder | "
+                       "Review: Enter = save & next • Esc = skip • Ctrl+S = save • Alt+←/→ = prev/next"
+                  ).pack(anchor="w", pady=(3, 0))
         p = self.app.theme.p
         for tag, col in (("saved", p["ok"]), ("review", p["warn"]), ("error", p["err"]), ("skipped", p["muted"])):
             self.table.tree.tag_configure(tag, foreground=col)

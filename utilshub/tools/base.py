@@ -78,7 +78,7 @@ class Tool:
     # ------------------------------------------------------------------ lifecycle
     def ensure_built(self, parent: tk.Misc) -> ttk.Frame:
         if not self.built:
-            self.frame = ttk.Frame(parent, padding=10)
+            self.frame = ttk.Frame(parent, padding=(8, 6))
             self.build(self.frame)
             self.built = True
         return self.frame

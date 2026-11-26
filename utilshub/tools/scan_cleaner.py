@@ -19,7 +19,7 @@ from ..core.ocr import OcrConfig, find_tesseract
 from ..core.schema import Opt
 from ..core.system import open_path, reveal
 from ..core.textutil import human_size
-from ..ui.widgets import DataTable, FolderEntry, confirm, error, info
+from ..ui.widgets import DataTable, FolderEntry, Tooltip, confirm, error, info
 from .base import Command, Tool
 
 PRESET_CHOICES = [(k, v[0]) for k, v in sc.PRESETS.items()] + [("custom", "Custom")]
@@ -138,52 +138,54 @@ class ScanCleaner(Tool):
         r = ttk.Frame(form)
         r.pack(fill="x", pady=2)
         ttk.Label(r, text="Preset").pack(side="left")
-        self.preset_cb = self._combo(r, "preset", PRESET_CHOICES, 34, self._preset_chosen)
-        self.preset_cb.pack(side="left", padx=6)
-        ttk.Label(r, text="   When I add files").pack(side="left")
-        self._combo(r, "on_add", ON_ADD, 32).pack(side="left", padx=6)
+        self.preset_cb = self._combo(r, "preset", PRESET_CHOICES, 28, self._preset_chosen)
+        self.preset_cb.pack(side="left", padx=4)
+        ttk.Label(r, text="When added").pack(side="left", padx=(8, 0))
+        self._combo(r, "on_add", ON_ADD, 24).pack(side="left", padx=4)
         r = ttk.Frame(form)
         r.pack(fill="x", pady=2)
         for text, key in (("Turn upright", "rotate"), ("Straighten", "deskew"), ("Leave out blank pages", "drop_blank"),
                           ("Sharpen", "sharpen")):
-            ttk.Checkbutton(r, text=text, variable=var(key, tk.BooleanVar)).pack(side="left", padx=(0, 10))
+            ttk.Checkbutton(r, text=text, variable=var(key, tk.BooleanVar)).pack(side="left", padx=(0, 8))
         r = ttk.Frame(form)
         r.pack(fill="x", pady=2)
         ttk.Label(r, text="Borders").pack(side="left")
-        self._combo(r, "crop", sc.CROP_MODES, 26).pack(side="left", padx=(4, 12))
+        self._combo(r, "crop", sc.CROP_MODES, 20).pack(side="left", padx=(4, 8))
         ttk.Label(r, text="Look").pack(side="left")
-        self._combo(r, "enhance", sc.ENHANCE_MODES, 30).pack(side="left", padx=(4, 12))
+        self._combo(r, "enhance", sc.ENHANCE_MODES, 22).pack(side="left", padx=(4, 8))
         ttk.Label(r, text="Speckles").pack(side="left")
-        self._combo(r, "denoise", DENOISE, 12).pack(side="left", padx=4)
+        self._combo(r, "denoise", DENOISE, 10).pack(side="left", padx=4)
         r = ttk.Frame(form)
         r.pack(fill="x", pady=2)
         r.columnconfigure(3, weight=1)
         ttk.Label(r, text="Save").pack(side="left")
-        self._combo(r, "output", [("beside", "Next to the original"), ("folder", "In this folder")], 20).pack(side="left", padx=4)
+        self._combo(r, "output", [("beside", "Next to the original"), ("folder", "In this folder")], 18).pack(side="left", padx=4)
         folder_var = var("folder")
-        FolderEntry(r, folder_var, "dir", open_button=True).pack(side="left", fill="x", expand=True, padx=4)
+        FolderEntry(r, folder_var, "dir", width=26, open_button=True).pack(side="left", fill="x", expand=True, padx=4)
         self.sync_var("folder", folder_var)
         ttk.Label(r, text="name +").pack(side="left")
-        ttk.Entry(r, width=9, textvariable=var("suffix")).pack(side="left", padx=4)
+        ttk.Entry(r, width=8, textvariable=var("suffix")).pack(side="left", padx=4)
 
         act = ttk.Frame(parent)
-        act.pack(fill="x", pady=6)
+        act.pack(fill="x", pady=(4, 4))
         ttk.Button(act, text="Add files…", command=self.add_files).pack(side="left")
         ttk.Button(act, text="Add folder…", command=self.add_folder).pack(side="left", padx=4)
-        ttk.Button(act, text="🔍 Analyse", command=self.analyse).pack(side="left", padx=(10, 0))
+        ttk.Button(act, text="🔍 Analyse", command=self.analyse).pack(side="left", padx=(6, 0))
         ttk.Button(act, text="✨ Clean all", style="Accent.TButton", command=self.clean_all).pack(side="left", padx=4)
         ttk.Button(act, text="✏ Adjust…", command=self.adjust_selected).pack(side="left")
-        ttk.Button(act, text="↩ Undo last batch", command=self.undo_batch).pack(side="left", padx=(10, 0))
+        undo_b = ttk.Button(act, text="↩ Undo", command=self.undo_batch)
+        undo_b.pack(side="left", padx=(6, 0))
+        Tooltip(undo_b, "Undo last cleaned batch")
         ttk.Button(act, text="Clear", command=self.clear).pack(side="right")
         ttk.Button(act, text="Remove", command=self.remove_selected).pack(side="right", padx=4)
         self.summary = ttk.Label(parent, style="Muted.TLabel", text="Add scans: images or PDFs.")
         self.summary.pack(anchor="w")
 
-        self.table = DataTable(parent, [("file", "File", 240), ("pages", "Pages", 50, "e"), ("size", "Size", 70, "e"),
-                                        ("found", "What was found", 260), ("status", "Status", 220),
-                                        ("folder", "Folder", 260)],
+        self.table = DataTable(parent, [("file", "File", 190), ("pages", "Pages", 48, "e"), ("size", "Size", 65, "e"),
+                                        ("found", "What was found", 190), ("status", "Status", 150),
+                                        ("folder", "Folder", 180)],
                                searchable=True, on_double=lambda iid: self.adjust(iid), stretch="folder")
-        self.table.pack(fill="both", expand=True, pady=(4, 6))
+        self.table.pack(fill="both", expand=True, pady=(3, 4))
         self.table.tag_colors(ok="ok", fail="err", edited="info")
         m = self.table.menu
         m.add_separator()

@@ -437,17 +437,26 @@ class Screenshot(Tool):
     # ------------------------------------------------------------------ UI
     def build(self, parent: ttk.Frame) -> None:
         bar = ttk.Frame(parent)
-        bar.pack(fill="x")
+        bar.pack(fill="x", pady=(0, 4))
         self.watch_var = tk.BooleanVar(value=self._watching)
         ttk.Checkbutton(bar, text="Watch clipboard", variable=self.watch_var,
                         command=lambda: self.put("watch_clipboard", self.watch_var.get())).pack(side="left")
-        for text, cmd, accent in (("Read clipboard now", self.paste_now, True), ("Open image…", self.choose_files, False),
-                                  ("Export…", self.export, False), ("Copy table", self.copy_table, False),
-                                  ("Delete selected", self.delete_selected, False), ("Clear", self.clear_session, False)):
-            ttk.Button(bar, text=text, command=cmd, style="Accent.TButton" if accent else "TButton").pack(side="left", padx=(8, 0))
-        ttk.Button(bar, text="⚙ Settings", command=lambda: self.app.open_settings(self.id)).pack(side="right")
+        for text, cmd, accent, tip_ in (
+            ("Read clipboard", self.paste_now, True, "Read image currently on the clipboard (Ctrl+V)"),
+            ("Open image…", self.choose_files, False, "Open image file(s)"),
+            ("Export…", self.export, False, "Export session table to Excel or CSV"),
+            ("Copy", self.copy_table, False, "Copy entire table to clipboard"),
+            ("Delete", self.delete_selected, False, "Delete selected rows"),
+            ("Clear", self.clear_session, False, "Clear all rows in this session"),
+        ):
+            b = ttk.Button(bar, text=text, command=cmd, style="Accent.TButton" if accent else "TButton")
+            b.pack(side="left", padx=(4, 0))
+            Tooltip(b, tip_)
+        gear_b = ttk.Button(bar, text="⚙", width=3, command=lambda: self.app.open_settings(self.id))
+        gear_b.pack(side="right")
+        Tooltip(gear_b, "Screenshot Extractor settings")
         self.count_lbl = ttk.Label(bar, style="Muted.TLabel")
-        self.count_lbl.pack(side="right", padx=10)
+        self.count_lbl.pack(side="right", padx=6)
         self.holder = ttk.Frame(parent)
         self.holder.pack(fill="both", expand=True)
         self._rebuild_table()
